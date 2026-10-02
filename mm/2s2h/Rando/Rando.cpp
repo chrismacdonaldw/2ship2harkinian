@@ -41,6 +41,26 @@ RandoCheckId Rando::FindItemPlacement(RandoItemId randoItemId) {
     return RC_UNKNOWN;
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+std::string Diptych_AbroadArea(RandoItemId randoItemId);
+#endif
+
+std::string Rando::AbroadLocationNameForHint(RandoItemId randoItemId) {
+#ifdef DIPTYCH_GAME_MODULE
+    const std::string abroad = Diptych_AbroadArea(randoItemId);
+    return abroad.empty() ? "" : "in " + abroad;
+#else
+    (void)randoItemId;
+    return "";
+#endif
+}
+
+std::string Rando::GetItemLocationNameForHint(RandoItemId randoItemId) {
+    RandoCheckId randoCheckId = FindItemPlacement(randoItemId);
+    const std::string abroad = randoCheckId == RC_UNKNOWN ? AbroadLocationNameForHint(randoItemId) : "";
+    return abroad.empty() ? Rando::StaticData::GetLocationNameForHint(randoCheckId, false) : abroad;
+}
+
 std::vector<RandoCheckId> Rando::FindMultiItemPlacement(RandoItemId randoItemId) {
     std::vector<RandoCheckId> itemPlacements;
     for (auto& [randocheckId, check] : Rando::StaticData::Checks) {

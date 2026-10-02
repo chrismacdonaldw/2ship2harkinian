@@ -81,8 +81,14 @@ void SetupMenu() {
     gui->SetMenu(mBenMenu);
 
     auto& style = ImGui::GetStyle();
+#ifdef DIPTYCH_GAME_MODULE
+    const float applied = ImGui::GetIO().FontGlobalScale;
+    style.FramePadding = ImVec2(4.0f * applied, 6.0f * applied);
+    style.ItemSpacing = ImVec2(8.0f * applied, 6.0f * applied);
+#else
     style.FramePadding = ImVec2(4.0f, 6.0f);
     style.ItemSpacing = ImVec2(8.0f, 6.0f);
+#endif
     style.Colors[ImGuiCol_MenuBarBg] = UIWidgets::ColorValues.at(UIWidgets::Colors::DarkGray);
 
     mModalWindow = std::make_shared<BenModalWindow>("gWindows.ModalWindow", "Modal Window");

@@ -12,11 +12,21 @@ namespace Rando {
 namespace Logic {
 
 void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
+    // Starting-clock selection reseeds Ship_Random; preserve starting-items, exclusions, RNG order.
+    PoolInputs inputs;
+    inputs.computedStartingItems = Rando::GetComputedStartingItems(saveInfo);
+    inputs.excludedChecks = Rando::GetExcludedChecksFromConfig();
+    inputs.random = Ship_Random;
+    GeneratePools(saveInfo, checkPool, itemPool, inputs);
+}
+
+void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool,
+                   const PoolInputs& inputs) {
     std::vector<RandoItemId> startingItems = Rando::GetStartingItemsFromSave(saveInfo);
-    std::vector<RandoItemId> computedStartingItems = Rando::GetComputedStartingItems(saveInfo);
+    const std::vector<RandoItemId>& computedStartingItems = inputs.computedStartingItems;
     startingItems.insert(startingItems.end(), computedStartingItems.begin(), computedStartingItems.end());
 
-    std::vector<RandoCheckId> excludedChecks = Rando::GetExcludedChecksFromConfig();
+    const std::vector<RandoCheckId>& excludedChecks = inputs.excludedChecks;
 
     std::set<RandoCheckId> vanillaSkulltulas;
     if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_YES) {
@@ -34,7 +44,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
             }
 
             for (size_t i = 0; i < sceneSkulltulas.size(); i++) {
-                std::swap(sceneSkulltulas[i], sceneSkulltulas[Ship_Random(0, sceneSkulltulas.size())]);
+                std::swap(sceneSkulltulas[i], sceneSkulltulas[inputs.random(0, sceneSkulltulas.size())]);
             }
             vanillaSkulltulas.insert(sceneSkulltulas.begin() + shuffledCount, sceneSkulltulas.end());
         }
@@ -161,7 +171,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 saveInfo.randoSaveOptions[RO_SHUFFLE_TINGLE_SHOPS] == RO_GENERIC_NO) {
                 continue;
             } else {
-                int price = Ship_Random(0, 200);
+                int price = inputs.random(0, 200);
                 saveInfo.randoSaveChecks[randoCheckId].price = price;
             }
 
@@ -175,7 +185,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 } else {
                     // We may come up with a better solution for this in the future, but for now we choose a
                     // random price ahead of time, logic will account for whatever price we choose
-                    int price = Ship_Random(0, 200);
+                    int price = inputs.random(0, 200);
                     saveInfo.randoSaveChecks[randoCheckId].price = price;
                 }
             }
@@ -424,7 +434,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
         }
 
         for (size_t i = 0; i < songChecks.size(); i++) {
-            std::swap(songChecks[i], songChecks[Ship_Random(0, songChecks.size())]);
+            std::swap(songChecks[i], songChecks[inputs.random(0, songChecks.size())]);
         }
 
         // we want to junk the song of healing check first, people normally start with SoT so we don't want

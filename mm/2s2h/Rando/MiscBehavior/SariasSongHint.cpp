@@ -148,6 +148,9 @@ static int playedSariasSongState = 0;
 RandoCheckId GetProgressiveCheckInLogic() {
     std::vector<RandoItemId> priorityItems = Rando::GetSariaPriorityItemsFromSave(gSaveContext.save.shipSaveInfo.rando);
 
+    Rando::Logic::State state = Rando::Logic::FromSave(gSaveContext);
+    Rando::Logic::ScopedState scope(state);
+
     std::unordered_map<RandoRegionId, Rando::Logic::RegionTimeState> regionTimeStates =
         Rando::Logic::InitializeRegionTimeStates(RR_MAX);
     std::set<RandoRegionId> reachableRegions = {};

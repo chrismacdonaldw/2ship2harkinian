@@ -10,6 +10,9 @@ namespace Rando {
 namespace Logic {
 
 void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
+    State state = FromSave(gSaveContext);
+    ScopedState scope(state);
+
     PreplaceConfinedItems(checkPool, itemPool);
 
     for (size_t i = 0; i < itemPool.size(); i++) {

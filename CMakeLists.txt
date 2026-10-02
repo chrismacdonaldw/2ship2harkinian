@@ -11,6 +11,20 @@ include(CMake/lus-cvars.cmake)
 set(SPDLOG_LEVEL_TRACE 0)
 set(SPDLOG_LEVEL_OFF 6)
 set(SPDLOG_MIN_CUTOFF SPDLOG_LEVEL_TRACE CACHE STRING "cutoff at trace")
+option(DIPTYCH_SHARED_ENGINE "Build libultraship, ImGui, SDL2 and spdlog as DLLs with the dynamic CRT" OFF)
+option(DIPTYCH_GAME_MODULE "Build the game as a DLL for a multi-game host (requires DIPTYCH_SHARED_ENGINE)" OFF)
+if(DIPTYCH_GAME_MODULE AND NOT DIPTYCH_SHARED_ENGINE)
+    message(FATAL_ERROR "DIPTYCH_GAME_MODULE requires DIPTYCH_SHARED_ENGINE")
+endif()
+# Static libraries linked into the shared engine and the game modules must be position independent on ELF.
+if(DIPTYCH_SHARED_ENGINE)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+# GCC gives function-local statics of inline functions one process-wide instance (STB_GNU_UNIQUE); each game module
+# keeps its own, as each Windows DLL does.
+if(DIPTYCH_GAME_MODULE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique>)
+endif()
 set(PROJECT_BUILD_NAME "Battler Bravo" CACHE STRING "" FORCE)
 set(PROJECT_TEAM "github.com/2ship2harkinian" CACHE STRING "" FORCE)
 
@@ -125,6 +139,15 @@ elseif ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
 	set(VCPKG_TARGET_TRIPLET x64-windows-static)
 endif()
 
+if(DIPTYCH_SHARED_ENGINE)
+	set(VCPKG_OVERLAY_TRIPLETS ${CMAKE_CURRENT_SOURCE_DIR}/CMake/triplets)
+	set(ENV{VCPKG_OVERLAY_TRIPLETS} ${VCPKG_OVERLAY_TRIPLETS})
+	set(VCPKG_TRIPLET x64-windows-diptych)
+	set(VCPKG_TARGET_TRIPLET x64-windows-diptych)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+	add_compile_definitions(LUS_DYNAMIC_CRT)
+endif()
+
 vcpkg_bootstrap()
 vcpkg_install_packages(zlib bzip2 libzip libpng sdl2 sdl2-net glew glfw3 nlohmann-json tinyxml2 spdlog libogg libvorbis opus opusfile)
 endif()
@@ -183,6 +206,9 @@ add_compile_definitions(CONTROLLERBUTTONS_T=uint32_t)
 ################################################################################
 # Sub-projects
 ################################################################################
+if(DIPTYCH_SHARED_ENGINE)
+    set(LUS_BUILD_SHARED ON)
+endif()
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 target_compile_definitions(libultraship PUBLIC INCLUDE_MPQ_SUPPORT)
 
@@ -315,3 +341,25 @@ endif()
 
 set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/Packaging-2.cmake)
 include(CMake/Packaging.cmake)
+
+# Dependencies force static CRT; shared DLLs need dynamic CRT throughout.
+if(MSVC AND DIPTYCH_SHARED_ENGINE)
+    function(diptych_force_dynamic_crt dir)
+        get_property(targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(target IN LISTS targets)
+            get_target_property(type ${target} TYPE)
+            if(type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|EXECUTABLE|OBJECT_LIBRARY)$")
+                set_target_properties(${target} PROPERTIES
+                    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+                # CMP0091 OLD targets ignore MSVC_RUNTIME_LIBRARY.
+                set_property(TARGET ${target} APPEND PROPERTY COMPILE_OPTIONS
+                    "$<$<COMPILE_LANGUAGE:C,CXX>:$<IF:$<CONFIG:Debug>,/MDd,/MD>>")
+            endif()
+        endforeach()
+        get_property(subdirs DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
+        foreach(subdir IN LISTS subdirs)
+            diptych_force_dynamic_crt(${subdir})
+        endforeach()
+    endfunction()
+    diptych_force_dynamic_crt(${CMAKE_SOURCE_DIR})
+endif()

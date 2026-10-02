@@ -98,13 +98,21 @@ std::unordered_map<int16_t, RandoItemId> enemySoulMap = {
 };
 // clang-format on
 
-bool HaveEnemySoul(ActorId enemyId) {
+s32 GetEnemySoulRandoInf(ActorId enemyId) {
     auto findSoulFlag = enemySoulMap.find(enemyId);
     if (findSoulFlag != enemySoulMap.end()) {
         RandoItemId randoItemId = findSoulFlag->second;
         if (randoItemId != RI_UNKNOWN) {
-            return Flags_GetRandoInf(SOUL_RI_TO_RANDO_INF(randoItemId));
+            return SOUL_RI_TO_RANDO_INF(randoItemId);
         }
+    }
+    return -1;
+}
+
+bool HaveEnemySoul(ActorId enemyId) {
+    s32 soulFlag = GetEnemySoulRandoInf(enemyId);
+    if (soulFlag >= 0) {
+        return Flags_GetRandoInf(soulFlag);
     }
     // Enemy soul does not exist, so act as if it is obtained
     return true;

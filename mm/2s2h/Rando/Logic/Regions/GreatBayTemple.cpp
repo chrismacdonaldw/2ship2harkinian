@@ -270,7 +270,7 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_GREAT_BAY_TEMPLE_SF_PRE_BOSS_UNDERWATER,  CAN_BE_ZORA && CAN_USE_ABILITY(SWIM)),
         },
         .exits = { //     TO                                         FROM
-            EXIT(ENTRANCE(GYORGS_LAIR, 0),                           ONE_WAY_EXIT, CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) && GBT_GREEN_SWITCH_FLOW),
+            EXIT(ENTRANCE(GYORGS_LAIR, 0),                           ONE_WAY_EXIT, LS_CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) && GBT_GREEN_SWITCH_FLOW),
         },
         .connections = {
             CONNECTION(RR_GREAT_BAY_TEMPLE_CENTRAL_ROOM, CAN_BE_ZORA && CAN_USE_ABILITY(SWIM)),
@@ -294,7 +294,7 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_GREAT_BAY_TEMPLE_BEFORE_WART,     KEY_COUNT(GREAT_BAY_TEMPLE) >= 1),
         },
         .events = {
-           EVENT(RE_GREAT_BAY_RED_SWITCH_1, CAN_USE_MAGIC_ARROW(ICE) && Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_ENEMY_OCTOROKS)),
+           EVENT(RE_GREAT_BAY_RED_SWITCH_1, CAN_USE_MAGIC_ARROW(ICE) && LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_ENEMY_OCTOROKS)),
         }
     };
     Regions[RR_GREAT_BAY_TEMPLE_RED_PIPE_SWITCH_ROOM] = RandoRegion{ .sceneId = SCENE_SEA,
@@ -314,7 +314,7 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_GREAT_BAY_TEMPLE_MAP_ROOM, true),
         },
         .events = {
-           EVENT(RE_GREAT_BAY_RED_SWITCH_2, CAN_USE_MAGIC_ARROW(ICE) && Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_ENEMY_CHUCHUS)),
+           EVENT(RE_GREAT_BAY_RED_SWITCH_2, CAN_USE_MAGIC_ARROW(ICE) && LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_ENEMY_CHUCHUS)),
         }
     };
     Regions[RR_GREAT_BAY_TEMPLE_WART] = RandoRegion{ .sceneId = SCENE_SEA,

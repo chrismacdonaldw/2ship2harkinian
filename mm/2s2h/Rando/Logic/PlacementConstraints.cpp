@@ -98,7 +98,7 @@ int RandoItemIdToDungeon(RandoItemId itemId) {
         case RI_REMAINS_GOHT:
         case RI_REMAINS_GYORG:
         case RI_REMAINS_TWINMOLD:
-            return RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_OWN_DUNGEON
+            return LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_OWN_DUNGEON
                        ? DungeonItemToDungeon(itemId)
                        : -1;
         default:
@@ -106,7 +106,7 @@ int RandoItemIdToDungeon(RandoItemId itemId) {
     }
 
     RandoOptionId placementOption = DungeonItemPlacementOption(itemId);
-    if (placementOption == RO_MAX || RANDO_SAVE_OPTIONS[placementOption] != RO_DUNGEON_ITEM_OWN_DUNGEON) {
+    if (placementOption == RO_MAX || LS_RANDO_SAVE_OPTIONS[placementOption] != RO_DUNGEON_ITEM_OWN_DUNGEON) {
         return -1;
     }
     return DungeonItemToDungeon(itemId);
@@ -127,7 +127,7 @@ bool IsSongLocationItem(RandoItemId itemId) {
 
 int CheckIdToConfinementGroup(RandoCheckId checkId) {
     auto& randoStaticCheck = Rando::StaticData::Checks[checkId];
-    if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS &&
+    if (LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS &&
         randoStaticCheck.randoCheckType == RCTYPE_SONG) {
         return CONFINEMENT_GROUP_SONGS;
     }
@@ -135,7 +135,7 @@ int CheckIdToConfinementGroup(RandoCheckId checkId) {
 }
 
 int RandoItemIdToConfinementGroup(RandoItemId itemId) {
-    if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS && IsSongLocationItem(itemId)) {
+    if (LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS && IsSongLocationItem(itemId)) {
         return CONFINEMENT_GROUP_SONGS;
     }
     return RandoItemIdToDungeon(itemId);

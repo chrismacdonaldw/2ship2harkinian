@@ -432,6 +432,10 @@ void Graph_ThreadEntry(void* arg0) {
     }
 }
 
+void Graph_RunFrame(void) {
+    RunFrame();
+}
+
 // #region 2S2H [Debugging] Debugging methods for viewing file/line info in the renderer.
 // Particularly useful with the Gfx Debugger window
 // Modeled after OOT-debug decomp

@@ -264,6 +264,9 @@ std::map<RandoItemId, RandoStaticItem> Items = {
     RI(RI_WOODFALL_MAP,               "the",  "Woodfall Map",               RITYPE_LESSER,          ITEM_DUNGEON_MAP,                GI_MAP,                      GID_DUNGEON_MAP),
     RI(RI_WOODFALL_SMALL_KEY,         "a",    "Woodfall Small Key",         RITYPE_SMALL_KEY,       ITEM_KEY_SMALL,                  GI_KEY_SMALL,                GID_KEY_SMALL),
     RI(RI_WOODFALL_STRAY_FAIRY,       "a",    "Woodfall Stray Fairy",       RITYPE_STRAY_FAIRY,     ITEM_STRAY_FAIRIES,              GI_STRAY_FAIRY,              GID_NONE),
+#ifdef DIPTYCH_GAME_MODULE
+    RI(RI_DIPTYCH_FOREIGN,               "an",   "item for Ocarina of Time",   RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_OCARINA),
+#endif
 };
 
 std::map<StartingItemCategory, std::vector<RandoItemId>> StartingItemsMap = {
@@ -667,8 +670,30 @@ const std::map<RandoItemId, std::vector<std::string>> fakeItemNames = {
     { RI_WALLET_ADULT, { "Silver Wallet", "Medium Wallet" } },
 };
 
+}
+}
+#ifdef DIPTYCH_GAME_MODULE
+std::string Diptych_ForeignItemName(RandoCheckId randoCheckId);
+std::string Diptych_ForeignItemPhrase(RandoCheckId randoCheckId);
+bool Diptych_ForeignTrap(RandoCheckId check);
+#endif
+namespace Rando {
+namespace StaticData {
+
 std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheckId randoCheckId) {
     std::string result;
+
+#ifdef DIPTYCH_GAME_MODULE
+    if (randoItemId == RI_DIPTYCH_FOREIGN && randoCheckId != RC_UNKNOWN) {
+        if (Diptych_ForeignTrap(randoCheckId)) {
+            return GetItemName(RI_TRAP, includeArticle, randoCheckId);
+        }
+        const std::string name = Diptych_ForeignItemName(randoCheckId);
+        if (!name.empty()) {
+            return includeArticle ? Diptych_ForeignItemPhrase(randoCheckId) : "Ocarina of Time: " + name;
+        }
+    }
+#endif
 
     if (includeArticle && !Ship_IsCStringEmpty(Rando::StaticData::Items[randoItemId].article)) {
         result += Rando::StaticData::Items[randoItemId].article;

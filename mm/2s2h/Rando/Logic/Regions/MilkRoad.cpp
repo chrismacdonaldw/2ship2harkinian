@@ -9,10 +9,10 @@ using namespace Rando::Logic;
 // on day 1 or beat the aliens. This will not work for entrance rando when that comes.
 #define BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_DAY                                                          \
     ((BETWEEN(TIME_DAY1_AM_06_00, TIME_NIGHT1_PM_06_00) && CAN_BE_GORON && HAS_ITEM(ITEM_POWDER_KEG)) || \
-     RANDO_EVENTS[RE_COWS_FROM_ALIENS])
+     LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS])
 #define BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_NIGHT                                                          \
     ((BETWEEN(TIME_NIGHT1_PM_06_00, TIME_NIGHT1_AM_02_30) && CAN_BE_GORON && HAS_ITEM(ITEM_POWDER_KEG)) || \
-     RANDO_EVENTS[RE_COWS_FROM_ALIENS])
+     LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS])
 
 // clang-format off
 static RegisterShipInitFunc initFunc([]() {
@@ -69,7 +69,7 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .connections = {
             // TODO: Also apparently can be reached using a trick with Goron mask and Bombs. Add trick later here
-            CONNECTION(RR_GORMAN_TRACK, RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()),
+            CONNECTION(RR_GORMAN_TRACK, LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()),
         },
     };
     Regions[RR_GORMAN_TRACK] = RandoRegion{ .sceneId = SCENE_KOEPONARACE,
@@ -104,8 +104,8 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_GORMAN_TRACK_GRASS_24, true),
         },
         .connections = {
-            CONNECTION(RR_GORMAN_TRACK_FRONT, CAN_PLAY_SONG(EPONA) || (RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2())),
-            CONNECTION(RR_GORMAN_TRACK_BACK, CAN_PLAY_SONG(EPONA) || (RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2())),
+            CONNECTION(RR_GORMAN_TRACK_FRONT, CAN_PLAY_SONG(EPONA) || (LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2())),
+            CONNECTION(RR_GORMAN_TRACK_BACK, CAN_PLAY_SONG(EPONA) || (LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2())),
         },
     };
     Regions[RR_GORMAN_TRACK_BACK] = RandoRegion{ .sceneId = SCENE_KOEPONARACE,
@@ -113,7 +113,7 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(MILK_ROAD, 2),                    ENTRANCE(GORMAN_TRACK, 3), true),
         },
         .connections = {
-            CONNECTION(RR_GORMAN_TRACK, RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()),
+            CONNECTION(RR_GORMAN_TRACK, LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()),
         },
     };
     Regions[RR_MILK_ROAD] = RandoRegion{ .sceneId = SCENE_ROMANYMAE,
@@ -138,12 +138,12 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(TERMINA_FIELD, 5),                ENTRANCE(MILK_ROAD, 0), true),
-            EXIT(ENTRANCE(ROMANI_RANCH, 0),                 ENTRANCE(MILK_ROAD, 1), AFTER(TIME_DAY3_AM_06_00) || RANDO_EVENTS[RE_DESTROY_MILK_ROAD_BOULDER]),
+            EXIT(ENTRANCE(ROMANI_RANCH, 0),                 ENTRANCE(MILK_ROAD, 1), AFTER(TIME_DAY3_AM_06_00) || LS_RANDO_EVENTS[RE_DESTROY_MILK_ROAD_BOULDER]),
             EXIT(ENTRANCE(GORMAN_TRACK, 0),                 ENTRANCE(MILK_ROAD, 3), true),
         },
         .connections = {
             // TODO: Trick to Goron bomb jump over the fence
-            CONNECTION(RR_MILK_ROAD_BEHIND_FENCE, (RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()) || FINAL_DAY()),
+            CONNECTION(RR_MILK_ROAD_BEHIND_FENCE, (LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()) || FINAL_DAY()),
         },
         .events = {
             EVENT(RE_ACCESS_PICTOGRAPH_TINGLE, HAS_ITEM(ITEM_PICTOGRAPH_BOX)),
@@ -159,7 +159,7 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .connections = {
             // TODO: Trick to Goron bomb jump over the fence
-            CONNECTION(RR_MILK_ROAD, (RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()) || FINAL_DAY()),
+            CONNECTION(RR_MILK_ROAD, (LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && IS_NIGHT2()) || FINAL_DAY()),
         },
     };
     Regions[RR_RANCH_BARN] = RandoRegion{ .sceneId = SCENE_OMOYA,
@@ -198,7 +198,7 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_ROMANI_RANCH_FIELD_COW_NEAR_HOUSE_BACK, CAN_PLAY_SONG(EPONA) && BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_DAY),
             CHECK(RC_ROMANI_RANCH_FIELD_COW_NEAR_HOUSE_FRONT, CAN_PLAY_SONG(EPONA) && BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_DAY),
             CHECK(RC_ROMANI_RANCH_FIELD_LARGE_CRATE, true),
-            CHECK(RC_CREMIA_ESCORT, RANDO_EVENTS[RE_COWS_FROM_ALIENS] && AT(TIME_NIGHT2_PM_06_00)),
+            CHECK(RC_CREMIA_ESCORT, LS_RANDO_EVENTS[RE_COWS_FROM_ALIENS] && AT(TIME_NIGHT2_PM_06_00)),
             CHECK(RC_ROMANI_RANCH_GRASS_01, true),
             CHECK(RC_ROMANI_RANCH_GRASS_02, true),
             CHECK(RC_ROMANI_RANCH_GRASS_03, true),

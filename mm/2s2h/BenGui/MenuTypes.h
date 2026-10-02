@@ -4,6 +4,7 @@
 #include "UIWidgets.hpp"
 
 #include <fast/Fast3dWindow.h>
+#include <functional>
 
 typedef enum {
     DISABLE_FOR_CAMERAS_OFF,
@@ -42,7 +43,11 @@ struct disabledInfo;
 using VoidFunc = void (*)();
 using DisableInfoFunc = bool (*)(disabledInfo&);
 using DisableVec = std::vector<DisableOption>;
+#ifdef DIPTYCH_GAME_MODULE
+using WidgetFunc = std::function<void(WidgetInfo&)>;
+#else
 using WidgetFunc = void (*)(WidgetInfo&);
+#endif
 
 typedef enum {
     WIDGET_CHECKBOX,

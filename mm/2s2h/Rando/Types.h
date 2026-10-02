@@ -2945,6 +2945,10 @@ typedef enum {
     RI_WOODFALL_MAP,
     RI_WOODFALL_SMALL_KEY,
     RI_WOODFALL_STRAY_FAIRY,
+#ifdef DIPTYCH_GAME_MODULE
+    // Append after real items; saves persist numeric RI values.
+    RI_DIPTYCH_FOREIGN,
+#endif
     RI_MAX_TRAP, // Just used for ice trap ice cube model
     RI_MAX,
 } RandoItemId;

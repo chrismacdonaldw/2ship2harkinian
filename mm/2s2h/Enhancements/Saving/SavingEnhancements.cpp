@@ -1,3 +1,14 @@
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychModule_Goals.h"
+#endif
+static bool KeepGoalOwlSave() {
+#ifdef DIPTYCH_GAME_MODULE
+    return DiptychGoals::CycleSavePending();
+#else
+    return false;
+#endif
+}
+
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -243,6 +254,9 @@ static RegisterShipInitFunc registerSavingEnhancements(
         // into the new cycle or lose their progress on moon crash.
         COND_HOOK(BeforeEndOfCycleSave, true, []() {
             SavingEnhancements_AdvancePlaytime();
+            if (KeepGoalOwlSave()) {
+                return;
+            }
             DeleteOwlSave();
         });
         COND_HOOK(BeforeMoonCrash, true, []() { DeleteOwlSave(); });

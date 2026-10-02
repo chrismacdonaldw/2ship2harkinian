@@ -7,7 +7,8 @@ namespace Rando {
 namespace Spoiler {
 
 void SaveToFile(const std::string& fileName, nlohmann::json spoiler) {
-    std::string filePath = Ship::Context::GetPathRelativeToAppDirectory("randomizer/" + fileName, appShortName);
+    std::string filePath =
+        Ship::Context::GetPathRelativeToAppDirectory(HostedDataFolder("randomizer") + "/" + fileName, appShortName);
     std::ofstream fileStream(filePath);
     if (!fileStream.is_open()) {
         throw std::runtime_error("Failed to open spoiler file");
@@ -17,7 +18,8 @@ void SaveToFile(const std::string& fileName, nlohmann::json spoiler) {
 }
 
 nlohmann::json LoadFromFile(const std::string& fileName) {
-    std::string spoilerFilePath = Ship::Context::GetPathRelativeToAppDirectory("randomizer/" + fileName, appShortName);
+    std::string spoilerFilePath =
+        Ship::Context::GetPathRelativeToAppDirectory(HostedDataFolder("randomizer") + "/" + fileName, appShortName);
     std::ifstream fileStream(spoilerFilePath);
     if (!fileStream.is_open()) {
         throw std::runtime_error("Failed to open spoiler file");

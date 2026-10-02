@@ -1,4 +1,7 @@
 #include "ActorBehavior.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychModule_ForeignItems.h"
+#endif
 #include <libultraship/bridge/consolevariablebridge.h>
 
 #include "2s2h/CustomItem/CustomItem.h"
@@ -344,6 +347,9 @@ Gfx* GetObjGrassDList(RandoCheckId randoCheckId) {
 
     RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
     RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+#ifdef DIPTYCH_GAME_MODULE
+    randoItemType = Diptych_ForeignItemType(randoItemId, randoCheckId, randoItemType);
+#endif
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:
@@ -386,6 +392,9 @@ Gfx* GetObjGrassXluDList(RandoCheckId randoCheckId) {
 
     RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
     RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+#ifdef DIPTYCH_GAME_MODULE
+    randoItemType = Diptych_ForeignItemType(randoItemId, randoCheckId, randoItemType);
+#endif
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:
@@ -429,6 +438,9 @@ Gfx* GetCuttableGrassDList(RandoCheckId randoCheckId) {
 
     RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
     RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+#ifdef DIPTYCH_GAME_MODULE
+    randoItemType = Diptych_ForeignItemType(randoItemId, randoCheckId, randoItemType);
+#endif
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:

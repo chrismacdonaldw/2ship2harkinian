@@ -9,8 +9,6 @@ namespace Logic {
 
 std::map<RandoRegionId, RandoRegion> Regions = {};
 
-uint64_t gCurrentRegionTime = 0;
-
 // GROTTOS
 // grottos are a bit weird, 15 of them share entrances with other grottos, so we have to check an extra field to
 // determine which grotto we're in, and convert the entrance ID to an unused one that we store for logic purposes.
@@ -176,8 +174,10 @@ void FindReachableRegions(RandoRegionId currentRegion, std::set<RandoRegionId>& 
 
     // Explore connections
     for (auto& [connectedRegionId, condition] : sourceRegion.connections) {
-        // Set global time for check evaluation
-        gCurrentRegionTime = currentTime;
+        if (tSearchGate != nullptr && !tSearchGate->Connection(currentRegion, connectedRegionId)) {
+            continue;
+        }
+        LS_REGION_TIME = currentTime;
 
         if (condition.first()) {
             auto& targetRegion = Regions[connectedRegionId];
@@ -204,8 +204,10 @@ void FindReachableRegions(RandoRegionId currentRegion, std::set<RandoRegionId>& 
 
     // Explore exits
     for (auto& [exitId, regionExit] : sourceRegion.exits) {
-        // Set global time for check evaluation
-        gCurrentRegionTime = currentTime;
+        if (tSearchGate != nullptr && !tSearchGate->Exit(currentRegion, exitId)) {
+            continue;
+        }
+        LS_REGION_TIME = currentTime;
 
         RandoRegionId connectedRegionId = GetRegionIdFromEntrance(exitId);
         if (regionExit.condition()) {

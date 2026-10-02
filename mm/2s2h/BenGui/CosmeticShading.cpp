@@ -578,17 +578,13 @@ static void ShadeHdPaletteNewBase(const char* path, uint32_t begin, uint32_t end
 static const Color_RGBA8 whiteBase = { 255, 255, 255, 255 };
 
 // Recolors a range of palette entries, keeping how light or dark each one was.
-static void ShadePaletteNewBase(const PaletteTarget& target, uint32_t begin, uint32_t end, Color_RGBA8 newBase,
+static void ShadePaletteBytes(uint8_t* data, uint32_t begin, uint32_t end, Color_RGBA8 newBase,
                                 SHADE_MODE mode) {
-    uint8_t* data = target.data;
-
     uint32_t maxR = 0;
     uint32_t maxG = 0;
     uint32_t maxB = 0;
 
     for (uint32_t i = begin; i <= end; i++) {
-        UnpatchPalette(target, i);
-
         uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
         uint8_t r = col16 >> 11;
         uint8_t g = (col16 >> 6) & 0x1f;
@@ -629,8 +625,18 @@ static void ShadePaletteNewBase(const PaletteTarget& target, uint32_t begin, uin
         g = (diff * newBase.g) / 255;
         b = (diff * newBase.b) / 255;
 
-        PatchPalette(target, i, r, g, b);
+        uint16_t result = (r << 11) | (g << 6) | (b << 1) | 1;
+        data[i * 2] = result >> 8;
+        data[i * 2 + 1] = result & 0xff;
     }
+}
+
+static void ShadePaletteNewBase(const PaletteTarget& target, uint32_t begin, uint32_t end, Color_RGBA8 newBase,
+                                SHADE_MODE mode) {
+    for (uint32_t index = begin; index <= end; ++index) UnpatchPalette(target, index);
+    if (mode == MODE_REVERT) return;
+    for (uint32_t index = begin; index <= end; ++index) SaveOriginalEntry(target, index);
+    ShadePaletteBytes(target.data, begin, end, newBase, mode);
 }
 
 // Recolors a palette by path, both the native one and any HD replacements.
@@ -654,6 +660,37 @@ void ShadePaletteRevert(const char* path, uint32_t begin, uint32_t end) {
     ShadePaletteNewBase(path, begin, end, whiteBase, MODE_REVERT);
 }
 
+static void ShadeGradientBytes(uint8_t* data, uint32_t begin, uint32_t end, Color_RGBA8 oldBase,
+                               Color_RGBA8 newBase, Color_RGBA8 targetEnd) {
+    // Convert 0-255 range to 0-31 range
+    newBase.r >>= 3;
+    newBase.g >>= 3;
+    newBase.b >>= 3;
+    newBase.a >>= 3;
+    targetEnd.r >>= 3;
+    targetEnd.g >>= 3;
+    targetEnd.b >>= 3;
+    targetEnd.a >>= 3;
+    oldBase.r >>= 3;
+    oldBase.g >>= 3;
+    oldBase.b >>= 3;
+    oldBase.a >>= 3;
+
+    for (uint32_t i = begin; i <= end; i++) {
+        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
+        uint8_t a = col16 & 1;
+        uint8_t r = col16 >> 11;
+        uint8_t g = (col16 >> 6) & 0x1f;
+        uint8_t b = (col16 >> 1) & 0x1f;
+
+        Color_RGBA8 currentColor = { r, g, b, a };
+        Color_RGBA8 newColor = mapNewBaseColorToGradient(currentColor, oldBase, newBase, targetEnd);
+        uint16_t result = (newColor.r << 11) | (newColor.g << 6) | (newColor.b << 1) | 1;
+        data[i * 2] = result >> 8;
+        data[i * 2 + 1] = result & 0xff;
+    }
+}
+
 // Recolors a palette that fades between two colors, swapping out the start color.
 void ShadePaletteGradient(const char* path, uint32_t begin, uint32_t end, Color_RGBA8 oldBase, Color_RGBA8 newBase,
                           Color_RGBA8 targetEnd) {
@@ -669,32 +706,8 @@ void ShadePaletteGradient(const char* path, uint32_t begin, uint32_t end, Color_
 
     ShadePaletteNewBase(target, begin, end, whiteBase, MODE_REVERT);
 
-    // Convert 0-255 range to 0-31 range
-    newBase.r >>= 3;
-    newBase.g >>= 3;
-    newBase.b >>= 3;
-    newBase.a >>= 3;
-    targetEnd.r >>= 3;
-    targetEnd.g >>= 3;
-    targetEnd.b >>= 3;
-    targetEnd.a >>= 3;
-    oldBase.r >>= 3;
-    oldBase.g >>= 3;
-    oldBase.b >>= 3;
-    oldBase.a >>= 3;
-
-    uint8_t* data = target.data;
-    for (uint32_t i = begin; i <= end; i++) {
-        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
-        uint8_t a = col16 & 1;
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-
-        Color_RGBA8 currentColor = { r, g, b, a };
-        Color_RGBA8 newColor = mapNewBaseColorToGradient(currentColor, oldBase, newBase, targetEnd);
-        PatchPalette(target, i, newColor.r, newColor.g, newColor.b);
-    }
+    for (uint32_t index = begin; index <= end; ++index) SaveOriginalEntry(target, index);
+    ShadeGradientBytes(target.data, begin, end, oldBase, newBase, targetEnd);
     InvalidateNativeTextureCache(path, target);
 }
 
@@ -921,3 +934,24 @@ void ShadeKafeiHairTlutRevert() {
     ShadeHdPaletteNewBase(kKafeiBody2TlutPath, 1, 3, whiteBase, MODE_REVERT);
     ShadeHdPaletteNewBase(kKafeiBody2TlutPath, 8, 255, whiteBase, MODE_REVERT);
 }
+
+#ifdef DIPTYCH_GAME_MODULE
+bool CosmeticShading_CopyTunicRange(const char* path, uint8_t* bytes, uint32_t size, uint32_t begin, uint32_t end,
+                                  Color_RGBA8 base, bool gradient) {
+    if (path == nullptr || bytes == nullptr || begin > end || end >= size / 2) return false;
+    // Only recover the selected cloth range. Other observer cosmetics stay untouched.
+    const auto found = sOriginalTextureData.find(path);
+    if (found != sOriginalTextureData.end()) {
+        const auto& original = found->second;
+        for (uint32_t index = begin; index <= end; ++index) {
+            if (index < original.saved.size() && original.saved[index]) {
+                bytes[index * 2] = original.entries[index] >> 8;
+                bytes[index * 2 + 1] = original.entries[index] & 0xff;
+            }
+        }
+    }
+    if (gradient) ShadeGradientBytes(bytes, begin, end, { 0, 74, 16, 255 }, base, { 197, 247, 247, 255 });
+    else ShadePaletteBytes(bytes, begin, end, base, MODE_MAX);
+    return true;
+}
+#endif

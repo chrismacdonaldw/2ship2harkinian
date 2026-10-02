@@ -3,6 +3,17 @@
 #include "CosmeticEditor.h"
 #include "CosmeticShading.h"
 #include "2s2h/ShipInit.hpp"
+#ifdef DIPTYCH_GAME_MODULE
+#include "HumanTunic.h"
+#include "FormTunic.h"
+#include <new>
+#include <fast/resource/type/Texture.h>
+#include <ship/utils/StrHash64.h>
+#include <array>
+#include <fast/resource/type/DisplayList.h>
+#include <ship/Context.h>
+#include <ship/resource/ResourceManager.h>
+#endif
 
 #include <cstring>
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -1113,43 +1124,40 @@ Gfx humanTunic[] = {
     gsSPEndDisplayList(),
 };
 
+namespace {
+struct HumanTunicMaterial {
+    const char* path;
+    int first;
+    int second;
+};
+// Shared by the native cosmetic editor and the per-player Human renderer.
+constexpr HumanTunicMaterial humanTunicMaterials[] = {
+    { "objects/object_link_child/gLinkHumanWaistDL", 5, -1 },
+    { "objects/object_link_child/gLinkHumanRightThighDL", 10, -1 },
+    { "objects/object_link_child/gLinkHumanLeftThighDL", 10, -1 },
+    { "objects/object_link_child/gLinkHumanHeadDL", 92, -1 },
+    { "objects/object_link_child/gLinkHumanHatDL", 10, -1 },
+    { "objects/object_link_child/gLinkHumanCollarDL", 5, -1 },
+    { "objects/object_link_child/gLinkHumanLeftShoulderDL", 10, 65 },
+    { "objects/object_link_child/gLinkHumanRightShoulderDL", 10, 65 },
+    { "objects/object_link_child/gLinkHumanTorsoDL", 5, -1 },
+};
+}
+
 static RegisterShipInitFunc humanTunicPatch(
     []() {
-        if (!IsCustomHumanModelActive() && CVarGetInteger(kHumanTunicOption.colorChangedCvar, 0)) {
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanWaistDL", "setPrim", 5,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightThighDL", "setPrim", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftThighDL", "setPrim", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanHeadDL", "setPrim", 92,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanHatDL", "setPrim", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanCollarDL", "setPrim", 5,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim1", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim2", 65,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim1", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim2", 65,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanTorsoDL", "setPrim", 5,
-                                       gsSPDisplayList(humanTunic));
-        } else {
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanWaistDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightThighDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftThighDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanHeadDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanHatDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanCollarDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanTorsoDL", "setPrim");
+        const bool changed = !IsCustomHumanModelActive() && CVarGetInteger(kHumanTunicOption.colorChangedCvar, 0);
+        for (const auto& material : humanTunicMaterials) {
+            const char* first = material.second < 0 ? "setPrim" : "setPrim1";
+            if (changed) {
+                ResourceMgr_PatchGfxByName(material.path, first, material.first, gsSPDisplayList(humanTunic));
+                if (material.second >= 0) {
+                    ResourceMgr_PatchGfxByName(material.path, "setPrim2", material.second, gsSPDisplayList(humanTunic));
+                }
+            } else {
+                ResourceMgr_UnpatchGfxByName(material.path, first);
+                if (material.second >= 0) ResourceMgr_UnpatchGfxByName(material.path, "setPrim2");
+            }
         }
     },
     { kHumanTunicOption.colorChangedCvar });
@@ -1160,6 +1168,144 @@ static RegisterShipInitFunc humanTunicColor(
         humanTunic[0] = gsDPSetPrimColor(0, 0, changedColor.r, changedColor.g, changedColor.b, 255);
     },
     { kHumanTunicOption.colorCvar });
+
+#ifdef DIPTYCH_GAME_MODULE
+extern Gfx humanHair[];
+namespace {
+static_assert(std::size(humanTunicMaterials) == COSMETIC_HUMAN_TUNIC_MATERIALS);
+constexpr size_t kHumanTunicFrameBytes = 64 * 1024;
+constexpr size_t kHumanTunicArenaReserve = 16 * 1024;
+constexpr size_t kHumanTunicMaxInstructions = 1024;
+GraphicsContext* humanTunicGfx = nullptr;
+u32 humanTunicFrame = 0;
+size_t humanTunicBytes = 0;
+
+int HumanTunicMaterialIndex(const CosmeticHumanTunicMaterials& materials, const Gfx* original) {
+    if (original == nullptr) return -1;
+    for (size_t index = 0; index < std::size(humanTunicMaterials); ++index) {
+        if (original == materials.originals[index]) return static_cast<int>(index);
+    }
+    // Native limbs use aligned __OTR__ strings; never dereference a segmented N64 address.
+    const uintptr_t address = reinterpret_cast<uintptr_t>(original);
+    if (address <= UINT32_MAX || (address & 1) != 0 || address > 0x0000FFFFFFFFFFFFULL) return -1;
+    const char* path = reinterpret_cast<const char*>(original);
+    if (strncmp(path, "__OTR__", 7) != 0) return -1;
+    for (size_t index = 0; index < std::size(humanTunicMaterials); ++index) {
+        if (strcmp(path + 7, humanTunicMaterials[index].path) == 0) return static_cast<int>(index);
+    }
+    return -1;
+}
+
+bool HumanTunicColorSite(const std::vector<Gfx>& instructions, int site) {
+    if (site < 0 || static_cast<size_t>(site) >= instructions.size()) return false;
+    const auto& command = instructions[site];
+    const auto& base = kHumanTunicOption.defaultColor;
+    const Gfx native = gsDPSetPrimColor(0, 255, base.r, base.g, base.b, 255);
+    const Gfx changed = gsSPDisplayList(humanTunic);
+    return (command.words.w0 == native.words.w0 && command.words.w1 == native.words.w1) ||
+           (command.words.w0 == changed.words.w0 && command.words.w1 == changed.words.w1);
+}
+
+bool HumanTunicIndependent(const std::vector<Gfx>& instructions) {
+    for (size_t index = 0; index < instructions.size();) {
+        const auto& command = instructions[index];
+        const auto opcode = command.words.w0 >> 24;
+        // The supported native limbs are independent. Modified/nested resource layouts fall back.
+        if (opcode == G_DL_OTR_HASH || opcode == G_DL_OTR_FILEPATH) return false;
+        if (opcode == G_DL) {
+            // Only the native cosmetic editor's small color lists may be delegated by these limbs.
+            const uintptr_t target = command.words.w1;
+            if (((command.words.w0 >> 16) & 1) != G_DL_PUSH ||
+                (target != reinterpret_cast<uintptr_t>(humanTunic) &&
+                 target != reinterpret_cast<uintptr_t>(humanHair) &&
+                 target != reinterpret_cast<uintptr_t>(backToWhite))) return false;
+        }
+        // These native resource opcodes occupy two physical Gfx slots (DisplayListFactory).
+        const bool expanded = opcode == G_SETTIMG_OTR_HASH || opcode == G_VTX_OTR_HASH ||
+                              opcode == G_BRANCH_Z_OTR || opcode == G_MARKER || opcode == G_MTX_OTR ||
+                              opcode == G_MOVEMEM_OTR;
+        const size_t stride = expanded ? 2 : 1;
+        if (stride > instructions.size() - index) return false;
+        index += stride;
+    }
+    return true;
+}
+}
+
+extern "C" int CosmeticEditor_GetHumanTunicColor(Color_RGBA8* color) {
+    if (color == nullptr || IsCustomHumanModelActive()) return 0;
+    const auto& base = kHumanTunicOption.defaultColor;
+    *color = CosmeticEditor_GetChangedColor(base.r, base.g, base.b, base.a, "Player.HumanTunic");
+    return 1;
+}
+
+extern "C" int CosmeticEditor_BuildHumanTunic(PlayState* play, Color_RGBA8 color,
+                                               CosmeticHumanTunicMaterials* materials) {
+    if (materials == nullptr) return 0;
+    *materials = {};
+    Color_RGBA8 local;
+    if (play == nullptr || play->state.gfxCtx == nullptr || !CosmeticEditor_GetHumanTunicColor(&local) ||
+        (local.r == color.r && local.g == color.g && local.b == color.b)) return 0;
+
+    auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
+    std::array<std::shared_ptr<Fast::DisplayList>, COSMETIC_HUMAN_TUNIC_MATERIALS> lists;
+    CosmeticHumanTunicMaterials built{};
+    size_t bytes = 3 * sizeof(Gfx);
+    for (size_t index = 0; index < lists.size(); ++index) {
+        const auto& material = humanTunicMaterials[index];
+        auto resource = resources->LoadResource(material.path);
+        lists[index] = std::dynamic_pointer_cast<Fast::DisplayList>(resource);
+        if (!lists[index] || !resource->GetInitData() || resources->GetResourceIsCustom(resource) ||
+            lists[index]->UCode != ucode_f3dex2 ||
+            lists[index]->Instructions.empty() || lists[index]->Instructions.size() > kHumanTunicMaxInstructions ||
+            !HumanTunicColorSite(lists[index]->Instructions, material.first) ||
+            (material.second >= 0 && !HumanTunicColorSite(lists[index]->Instructions, material.second))) return 0;
+        built.originals[index] = lists[index]->Instructions.data();
+        bytes += lists[index]->Instructions.size() * sizeof(Gfx);
+    }
+    for (const auto& list : lists) {
+        if (!HumanTunicIndependent(list->Instructions)) return 0;
+    }
+    bytes = ALIGN16(bytes);
+    auto gfx = play->state.gfxCtx;
+    if (humanTunicGfx != gfx || humanTunicFrame != gfx->gfxPoolIdx) {
+        humanTunicGfx = gfx;
+        humanTunicFrame = gfx->gfxPoolIdx;
+        humanTunicBytes = 0;
+    }
+    const uintptr_t front = reinterpret_cast<uintptr_t>(gfx->polyOpa.p);
+    const uintptr_t tail = reinterpret_cast<uintptr_t>(gfx->polyOpa.d);
+    if (bytes > kHumanTunicFrameBytes - humanTunicBytes || tail < front ||
+        tail - front < bytes + kHumanTunicArenaReserve) return 0;
+
+    // Same double-buffered arena as native skeleton matrices: all interpolated Graph renders
+    // consume these pointers before the pool is reused. The cap is shared across this frame's peers.
+    auto commands = static_cast<Gfx*>(GRAPH_ALLOC(gfx, bytes));
+    humanTunicBytes += bytes;
+    Gfx* tint = commands;
+    commands[0] = gsDPSetPrimColor(0, 0, color.r, color.g, color.b, 255);
+    commands[1] = gsDPPipeSync();
+    commands[2] = gsSPEndDisplayList();
+    commands += 3;
+    for (size_t index = 0; index < lists.size(); ++index) {
+        const auto& source = lists[index]->Instructions;
+        memcpy(commands, source.data(), source.size() * sizeof(Gfx));
+        const auto& material = humanTunicMaterials[index];
+        commands[material.first] = gsSPDisplayList(tint);
+        if (material.second >= 0) commands[material.second] = gsSPDisplayList(tint);
+        built.copies[index] = commands;
+        commands += source.size();
+    }
+    *materials = built;
+    return 1;
+}
+
+extern "C" Gfx* CosmeticEditor_HumanTunicDList(const CosmeticHumanTunicMaterials* materials, Gfx* original) {
+    if (materials == nullptr) return original;
+    const int index = HumanTunicMaterialIndex(*materials, original);
+    return index >= 0 && materials->copies[index] != nullptr ? materials->copies[index] : original;
+}
+#endif
 
 // Player.HumanHair
 
@@ -1194,6 +1340,98 @@ static RegisterShipInitFunc humanHairColor(
     },
     { kHumanHairOption.colorCvar });
 
+// The native editor and peer renderer use the same verified stock cloth patch sites.
+extern Gfx dekuTunic[], goronTunic[], fierceDeityTunic[];
+namespace {
+struct FormColorSite { int index; uintptr_t w0; uintptr_t w1; const Gfx* nativeColor; const char* patch; };
+struct FormMaterial { const char* path; size_t count; FormColorSite sites[2]; };
+constexpr FormMaterial fiercedeityMaterials[] = {
+    { "objects/object_link_boy/gLinkFierceDeityHatDL", 51, { { 32, 0xFA000080u, 0xFFFFFFFFu, fierceDeityTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityHeadDL", 236, { { 87, 0xE7000000u, 0x00000000u, fierceDeityTunic, "setPrim" }, { 129, 0xE7000000u, 0x00000000u, backToWhite, "setPrimBackToWhite" } } },
+    { "objects/object_link_boy/gLinkFierceDeityLeftFootDL", 40, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityLeftForearmDL", 94, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityLeftHandDL", 89, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityLeftShinDL", 86, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityLeftShoulderDL", 72, { { 30, 0xFA000080u, 0xFFFFFFFFu, fierceDeityTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityLeftThighDL", 128, { { 36, 0xFA000080u, 0xFAFFFFFFu, fierceDeityTunic, "setPrim1" }, { 118, 0xFA000080u, 0xFAFFFFFFu, fierceDeityTunic, "setPrim2" } } },
+    { "objects/object_link_boy/gLinkFierceDeityRightFootDL", 40, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityRightForearmDL", 74, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityRightHandDL", 95, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityRightShinDL", 86, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityRightShoulderDL", 69, { { 30, 0xFA000080u, 0xFFFFFFFFu, fierceDeityTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityRightThighDL", 116, { { 30, 0xFA000080u, 0xFFFFFFFFu, fierceDeityTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityTorsoDL", 77, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_boy/gLinkFierceDeityWaistDL", 92, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+};
+
+constexpr FormMaterial goronMaterials[] = {
+    { "objects/object_link_goron/gLinkGoronHatDL", 47, { { 17, 0xFA000080u, 0xFFFFFFFFu, goronTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_goron/gLinkGoronWaistDL", 23, { { 16, 0xFA000080u, 0xFFFFFFFFu, goronTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    // Full local Player_Draw emits the curled body directly, outside skeletal limbs.
+    { "objects/object_link_goron/gLinkGoronCurledDL", 271, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+};
+
+constexpr FormMaterial zoraMaterials[] = {
+    { "objects/object_link_zora/gLinkZoraCollarDL", 28, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraHatDL", 46, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraHeadDL", 174, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftFootDL", 46, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftForearmDL", 87, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftHandClosedDL", 114, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftHandOpenDL", 82, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftShinDL", 90, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftShoulderDL", 46, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraLeftThighDL", 114, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightFootDL", 46, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightForearmDL", 87, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightHandClosedDL", 114, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightHandOpenDL", 82, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightShinDL", 90, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightShoulderDL", 56, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraRightThighDL", 114, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraSheathDL", 28, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraTorsoDL", 130, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/gLinkZoraWaistDL", 72, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    // Native post-limb arm fins, emitted by Player_PostLimbDrawGameplay.
+    { "objects/object_link_zora/object_link_zora_DL_00CC38", 52, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_zora/object_link_zora_DL_00CDA0", 52, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    // Native local shield uses its own animated-material segments in the translucent span.
+    { "objects/object_link_zora/object_link_zora_DL_011760", 105, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+};
+
+constexpr FormMaterial dekuMaterials[] = {
+    { "objects/object_link_nuts/gLinkDekuCollarDL", 29, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuHatDL", 52, { { 29, 0xFA000080u, 0xFFFFFFFFu, dekuTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuHeadDL", 169, { { 55, 0xE7000000u, 0x00000000u, dekuTunic, "setPrim1" }, { 76, 0xE7000000u, 0x00000000u, backToWhite, "setPrim2" } } },
+    { "objects/object_link_nuts/gLinkDekuLeftFootDL", 42, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuLeftForearmDL", 38, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuLeftHandDL", 35, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuLeftShinDL", 38, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuLeftShoulderDL", 40, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuLeftThighDL", 40, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuRightFootDL", 42, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuRightForearmDL", 38, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuRightHandDL", 35, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuRightShinDL", 38, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuRightShoulderDL", 40, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuRightThighDL", 40, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuSheathDL", 29, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuTorsoDL", 46, { { -1, 0, 0, nullptr, nullptr }, { -1, 0, 0, nullptr, nullptr } } },
+    { "objects/object_link_nuts/gLinkDekuWaistDL", 63, { { 22, 0xFA000080u, 0xFFFFFFFFu, dekuTunic, "setPrim" }, { -1, 0, 0, nullptr, nullptr } } },
+};
+
+template<size_t Count>
+void PatchFormTunicSites(const FormMaterial (&materials)[Count], bool changed) {
+    for (const auto& material : materials) {
+        for (const auto& site : material.sites) {
+            if (site.index < 0) continue;
+            if (changed) ResourceMgr_PatchGfxByName(material.path, site.patch, site.index, gsSPDisplayList(site.nativeColor));
+            else ResourceMgr_UnpatchGfxByName(material.path, site.patch);
+        }
+    }
+}
+}
+
 // Player.DekuTunic
 
 Gfx dekuTunic[] = {
@@ -1205,21 +1443,11 @@ Gfx dekuTunic[] = {
 static RegisterShipInitFunc dekuTunicPatch(
     []() {
         if (!IsCustomDekuModelActive() && CVarGetInteger(kDekuTunicOption.colorChangedCvar, 0)) {
-            ResourceMgr_PatchGfxByName("objects/object_link_nuts/gLinkDekuWaistDL", "setPrim", 22,
-                                       gsSPDisplayList(dekuTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_nuts/gLinkDekuHeadDL", "setPrim1", 55,
-                                       gsSPDisplayList(dekuTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_nuts/gLinkDekuHeadDL", "setPrim2", 76,
-                                       gsSPDisplayList(backToWhite));
-            ResourceMgr_PatchGfxByName("objects/object_link_nuts/gLinkDekuHatDL", "setPrim", 29,
-                                       gsSPDisplayList(dekuTunic));
+            PatchFormTunicSites(dekuMaterials, true);
 
             ShadePaletteWhite("objects/object_link_nuts/object_link_nuts_TLUT_003EB0", 243, 254, MODE_MAX);
         } else {
-            ResourceMgr_UnpatchGfxByName("objects/object_link_nuts/gLinkDekuWaistDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_nuts/gLinkDekuHeadDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_nuts/gLinkDekuHeadDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_nuts/gLinkDekuHatDL", "setPrim");
+            PatchFormTunicSites(dekuMaterials, false);
 
             ShadePaletteRevert("objects/object_link_nuts/object_link_nuts_TLUT_003EB0", 243, 254);
         }
@@ -1331,15 +1559,11 @@ Gfx goronTunic[] = {
 static RegisterShipInitFunc goronTunicPatch(
     []() {
         if (!IsCustomGoronModelActive() && CVarGetInteger(kGoronTunicOption.colorChangedCvar, 0)) {
-            ResourceMgr_PatchGfxByName("objects/object_link_goron/gLinkGoronWaistDL", "setPrim", 16,
-                                       gsSPDisplayList(goronTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_goron/gLinkGoronHatDL", "setPrim", 17,
-                                       gsSPDisplayList(goronTunic));
+            PatchFormTunicSites(goronMaterials, true);
 
             ShadePaletteWhite("objects/object_link_goron/object_link_goron_Tex_002780", 0, 127, MODE_MAX);
         } else {
-            ResourceMgr_UnpatchGfxByName("objects/object_link_goron/gLinkGoronWaistDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_goron/gLinkGoronHatDL", "setPrim");
+            PatchFormTunicSites(goronMaterials, false);
 
             ShadePaletteRevert("objects/object_link_goron/object_link_goron_Tex_002780", 0, 127);
             ShadePaletteRevert("objects/object_link_goron/object_link_goron_Tex_00CEB8", 0, 127);
@@ -1438,31 +1662,11 @@ static const char* kFierceDeityHeadDlPath = "objects/object_link_boy/gLinkFierce
 static RegisterShipInitFunc fierceDeityTunicPatch(
     []() {
         if (!IsCustomFierceDeityModelActive() && CVarGetInteger(kFierceDeityTunicOption.colorChangedCvar, 0)) {
-            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityHatDL", "setPrim", 32,
-                                       gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName(kFierceDeityHeadDlPath, "setPrim", 87, gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightShoulderDL", "setPrim", 30,
-                                       gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftShoulderDL", "setPrim", 30,
-                                       gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightThighDL", "setPrim", 30,
-                                       gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim1", 36,
-                                       gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim2", 118,
-                                       gsSPDisplayList(fierceDeityTunic));
-            ResourceMgr_PatchGfxByName(kFierceDeityHeadDlPath, "setPrimBackToWhite", 129, gsSPDisplayList(backToWhite));
+            PatchFormTunicSites(fiercedeityMaterials, true);
 
             ShadePaletteWhite(kFierceDeityClothTlutPath, 0, 12, MODE_MAX);
         } else {
-            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityHatDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName(kFierceDeityHeadDlPath, "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightShoulderDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftShoulderDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightThighDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName(kFierceDeityHeadDlPath, "setPrimBackToWhite");
+            PatchFormTunicSites(fiercedeityMaterials, false);
 
             ShadePaletteRevert(kFierceDeityClothTlutPath, 0, 12);
         }
@@ -1475,6 +1679,357 @@ static RegisterShipInitFunc fierceDeityTunicColor(
         fierceDeityTunic[0] = gsDPSetPrimColor(0, 0x80, changedColor.r, changedColor.g, changedColor.b, 255);
     },
     { kFierceDeityTunicOption.colorCvar });
+
+
+#ifdef DIPTYCH_GAME_MODULE
+namespace {
+struct FormTexture { const char* path; Fast::TextureType type; u16 width; u16 height; u32 size; bool cloth; };
+
+
+constexpr FormTexture fiercedeityTextures[] = {
+    { "objects/object_link_boy/gLinkFierceDeityHandTLUT", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/gLinkFierceDeityHandTex", Fast::TextureType::Palette4bpp, 16, 16, 128, false },
+    { "objects/object_link_boy/object_link_boy_TLUT_008108", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/object_link_boy_TLUT_008128", Fast::TextureType::RGBA16bpp, 4, 4, 32, true },
+    { "objects/object_link_boy/object_link_boy_TLUT_008148", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/object_link_boy_TLUT_008168", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/object_link_boy_TLUT_008188", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/object_link_boy_TLUT_0081A8", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/object_link_boy_TLUT_0081E8", Fast::TextureType::RGBA16bpp, 4, 4, 32, false },
+    { "objects/object_link_boy/object_link_boy_Tex_008408", Fast::TextureType::Palette4bpp, 16, 16, 128, false },
+    { "objects/object_link_boy/object_link_boy_Tex_008C88", Fast::TextureType::Palette4bpp, 16, 16, 128, false },
+    { "objects/object_link_boy/object_link_boy_Tex_008D08", Fast::TextureType::Palette4bpp, 32, 32, 512, false },
+    { "objects/object_link_boy/object_link_boy_Tex_008F08", Fast::TextureType::Palette4bpp, 64, 64, 2048, false },
+    { "objects/object_link_boy/object_link_boy_Tex_00A708", Fast::TextureType::Palette4bpp, 32, 32, 512, false },
+    { "objects/object_link_boy/object_link_boy_Tex_00AF08", Fast::TextureType::Palette4bpp, 32, 32, 512, false },
+    { "objects/object_link_boy/object_link_boy_Tex_00B188", Fast::TextureType::Palette4bpp, 64, 64, 2048, false },
+};
+
+
+
+constexpr FormTexture goronTextures[] = {
+    { "objects/object_link_goron/object_link_goron_Tex_002780", Fast::TextureType::RGBA16bpp, 8, 16, 256, true },
+    { "objects/object_link_goron/object_link_goron_Tex_00CEB8", Fast::TextureType::RGBA16bpp, 8, 16, 256, true },
+};
+
+
+
+constexpr FormTexture zoraTextures[] = {
+    { "objects/object_link_zora/gLinkZoraSkinTLUT", Fast::TextureType::RGBA16bpp, 16, 16, 512, false },
+    { "objects/object_link_zora/object_link_zora_TLUT_005000", Fast::TextureType::RGBA16bpp, 16, 16, 512, true },
+    { "objects/object_link_zora/object_link_zora_Tex_005400", Fast::TextureType::Palette8bpp, 32, 32, 1024, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005800", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005900", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005A00", Fast::TextureType::Palette8bpp, 8, 16, 128, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005A80", Fast::TextureType::Palette8bpp, 8, 16, 128, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005B00", Fast::TextureType::Palette8bpp, 32, 16, 512, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005D00", Fast::TextureType::Palette8bpp, 16, 32, 512, false },
+    { "objects/object_link_zora/object_link_zora_Tex_005F00", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_006000", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_006100", Fast::TextureType::Palette8bpp, 8, 16, 128, false },
+    { "objects/object_link_zora/object_link_zora_Tex_006180", Fast::TextureType::Palette8bpp, 8, 8, 64, false },
+    { "objects/object_link_zora/object_link_zora_Tex_0061C0", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_00E678", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_00E778", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_00E878", Fast::TextureType::Palette8bpp, 8, 16, 128, false },
+    { "objects/object_link_zora/object_link_zora_TLUT_00C578", Fast::TextureType::RGBA16bpp, 16, 16, 512, true },
+    { "objects/object_link_zora/object_link_zora_Tex_00C778", Fast::TextureType::Palette8bpp, 16, 32, 512, false },
+    { "objects/object_link_zora/object_link_zora_Tex_00C978", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_zora/object_link_zora_Tex_010228", Fast::TextureType::RGBA16bpp, 16, 32, 1024, true },
+};
+
+
+
+constexpr FormTexture dekuTextures[] = {
+    { "objects/object_link_nuts/object_link_nuts_TLUT_003CB0", Fast::TextureType::RGBA16bpp, 16, 16, 512, false },
+    { "objects/object_link_nuts/object_link_nuts_TLUT_003EB0", Fast::TextureType::RGBA16bpp, 16, 16, 512, true },
+    { "objects/object_link_nuts/object_link_nuts_Tex_0040B0", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_nuts/object_link_nuts_Tex_0041B0", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_nuts/object_link_nuts_Tex_0042B0", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_nuts/object_link_nuts_Tex_0043B0", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+    { "objects/object_link_nuts/object_link_nuts_Tex_0044B0", Fast::TextureType::Palette8bpp, 32, 32, 1024, false },
+    { "objects/object_link_nuts/object_link_nuts_Tex_0058B0", Fast::TextureType::Palette8bpp, 16, 16, 256, false },
+};
+
+struct FormCatalogue {
+    const FormMaterial* materials;
+    size_t materialCount;
+    const FormTexture* textures;
+    size_t textureCount;
+};
+constexpr FormCatalogue formCatalogues[] = {
+    { fiercedeityMaterials, std::size(fiercedeityMaterials), fiercedeityTextures, std::size(fiercedeityTextures) },
+    { goronMaterials, std::size(goronMaterials), goronTextures, std::size(goronTextures) },
+    { zoraMaterials, std::size(zoraMaterials), zoraTextures, std::size(zoraTextures) },
+    { dekuMaterials, std::size(dekuMaterials), dekuTextures, std::size(dekuTextures) },
+};
+constexpr size_t kFormTextures = 24;
+constexpr size_t kFormTextureBytes = 64 * 1024;
+struct FormTextureCopy {
+    std::vector<uint8_t> bytes;
+    std::vector<uint8_t> scratch;
+    uint64_t hash = 0;
+};
+
+size_t FormCommandStride(uintptr_t op) {
+    return op == G_SETTIMG_OTR_HASH || op == G_DL_OTR_HASH || op == G_VTX_OTR_HASH || op == G_BRANCH_Z_OTR ||
+           op == G_MARKER || op == G_MTX_OTR || op == G_MOVEMEM_OTR ? 2 : 1;
+}
+bool FormCommandsSupported(const std::vector<Gfx>& commands, const FormMaterial& material) {
+    if (commands.size() != material.count) return false;
+    const Gfx push = gsSPDisplayList(nullptr);
+    for (const auto& site : material.sites) {
+        if (site.index < 0) continue;
+        const auto& cmd = commands[site.index];
+        const Gfx native = gsSPDisplayList(site.nativeColor);
+        if (!((cmd.words.w0 == site.w0 && cmd.words.w1 == site.w1) ||
+              (cmd.words.w0 == native.words.w0 && cmd.words.w1 == native.words.w1))) return false;
+    }
+    for (size_t index = 0; index < commands.size();) {
+        const auto& cmd = commands[index];
+        const auto op = cmd.words.w0 >> 24;
+        // Native limbs only delegate culling and the editor's known small color lists.
+        if (op == G_DL_OTR_HASH || op == G_DL_OTR_FILEPATH) return false;
+        if (op == G_DL && cmd.words.w0 != push.words.w0) return false;
+        const bool shieldSegment = strcmp(material.path, "objects/object_link_zora/object_link_zora_DL_011760") == 0 &&
+                                   (cmd.words.w1 == 0x0A000001 || cmd.words.w1 == 0x0B000001);
+        if (op == G_DL && !shieldSegment && cmd.words.w1 != 0x0C000001 &&
+            cmd.words.w1 != reinterpret_cast<uintptr_t>(dekuTunic) &&
+            cmd.words.w1 != reinterpret_cast<uintptr_t>(dekuHair) &&
+            cmd.words.w1 != reinterpret_cast<uintptr_t>(goronTunic) &&
+            cmd.words.w1 != reinterpret_cast<uintptr_t>(fierceDeityTunic) &&
+            cmd.words.w1 != reinterpret_cast<uintptr_t>(backToWhite)) return false;
+        const size_t stride = FormCommandStride(op);
+        if (stride > commands.size() - index) return false;
+        index += stride;
+    }
+    return true;
+}
+}
+
+struct CosmeticFormTunicCache {
+    std::array<FormTextureCopy, kFormTextures> textures;
+    int form = -1;
+    size_t count = 0;
+    void Invalidate() const {
+        // Every CI reader has private bytes too: palette addresses alone cannot be evicted by Fast.
+        for (size_t index = 0; index < count; ++index)
+            if (!textures[index].bytes.empty()) Gfx_TextureCacheDelete(textures[index].bytes.data());
+    }
+    ~CosmeticFormTunicCache() { Invalidate(); }
+};
+
+static int GetFormTunicColor(u8 form, Color_RGBA8* color, int* changed) {
+    if (color == nullptr || changed == nullptr) return 0;
+    CosmeticOption* option;
+    const char* id;
+    switch (form) {
+        case PLAYER_FORM_FIERCE_DEITY:
+            if (IsCustomFierceDeityModelActive()) return 0;
+            option = &kFierceDeityTunicOption; id = "Player.FierceDeityTunic"; break;
+        case PLAYER_FORM_GORON:
+            if (IsCustomGoronModelActive()) return 0;
+            option = &kGoronTunicOption; id = "Player.GoronTunic"; break;
+        case PLAYER_FORM_ZORA:
+            if (IsCustomZoraModelActive()) return 0;
+            option = &kZoraTunicOption; id = "Player.ZoraTunic"; break;
+        case PLAYER_FORM_DEKU:
+            if (IsCustomDekuModelActive()) return 0;
+            option = &kDekuTunicOption; id = "Player.DekuTunic"; break;
+        default: return 0;
+    }
+    const auto& base = option->defaultColor;
+    *changed = CVarGetInteger(option->colorChangedCvar, 0) != 0;
+    *color = CosmeticEditor_GetChangedColor(base.r, base.g, base.b, base.a, id);
+    return 1;
+}
+extern "C" CosmeticFormTunicCache* CosmeticEditor_CreateFormTunic(void) {
+    return new (std::nothrow) CosmeticFormTunicCache;
+}
+extern "C" void CosmeticEditor_DestroyFormTunic(CosmeticFormTunicCache* cache) { delete cache; }
+
+extern "C" int CosmeticEditor_BuildFormTunic(PlayState* play, CosmeticFormTunicCache* cache, u8 form,
+                                            Color_RGBA8 color, CosmeticFormTunicMaterials* materials) {
+    if (materials == nullptr) return 0;
+    *materials = {};
+    Color_RGBA8 local;
+    int localChanged;
+    if (play == nullptr || play->state.gfxCtx == nullptr || cache == nullptr ||
+        !GetFormTunicColor(form, &local, &localChanged) ||
+        (localChanged && color.r == local.r && color.g == local.g && color.b == local.b)) return 0;
+    const auto& catalogue = formCatalogues[form];
+    if (catalogue.materialCount > COSMETIC_FORM_TUNIC_MATERIALS || catalogue.textureCount > kFormTextures) return 0;
+    auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
+    std::array<std::shared_ptr<Fast::DisplayList>, COSMETIC_FORM_TUNIC_MATERIALS> lists;
+    size_t bytes = 3 * sizeof(Gfx);
+    for (size_t index = 0; index < catalogue.materialCount; ++index) {
+        auto resource = resources->LoadResource(catalogue.materials[index].path);
+        lists[index] = std::dynamic_pointer_cast<Fast::DisplayList>(resource);
+        if (!lists[index] || !resource->GetInitData() || resources->GetResourceIsCustom(resource) ||
+            lists[index]->UCode != ucode_f3dex2 ||
+            !FormCommandsSupported(lists[index]->Instructions, catalogue.materials[index])) return 0;
+        bytes += lists[index]->Instructions.size() * sizeof(Gfx);
+    }
+    if (cache->form != form) {
+        // Previous frame interpretation finishes before native GameState_Update. Never free queued draw bytes.
+        cache->Invalidate();
+        cache->form = form;
+        cache->count = catalogue.textureCount;
+    }
+    bool refreshed = false;
+    size_t textureBytes = 0;
+    try {
+        for (size_t index = 0; index < catalogue.textureCount; ++index) {
+            const auto& spec = catalogue.textures[index];
+            auto resource = resources->LoadResource(spec.path);
+            auto texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
+            if (!texture || !resource->GetInitData() || resources->GetResourceIsCustom(resource) ||
+                texture->Flags != 0 || texture->Type != spec.type || texture->Width != spec.width ||
+                texture->Height != spec.height || texture->HByteScale != 1 || texture->VPixelScale != 1 ||
+                texture->ImageData == nullptr || texture->ImageDataSize != spec.size) return 0;
+            textureBytes += 2 * spec.size;
+            if (textureBytes > kFormTextureBytes) return 0;
+            auto& copy = cache->textures[index];
+            if (copy.bytes.size() != spec.size) {
+                cache->Invalidate();
+                copy.bytes.resize(spec.size);
+                refreshed = true;
+            }
+            copy.scratch.resize(spec.size); // Capacity is reused, including native rainbow updates.
+            memcpy(copy.scratch.data(), texture->ImageData, spec.size);
+            copy.hash = CRC64(spec.path);
+            if (spec.cloth) {
+                if (form == PLAYER_FORM_ZORA) {
+                    if (strcmp(spec.path, "objects/object_link_zora/object_link_zora_Tex_010228") == 0) {
+                        if (!CosmeticShading_CopyTunicRange(spec.path, copy.scratch.data(), spec.size,
+                                                            80, 511, color, true)) return 0;
+                    } else {
+                        for (const auto range : { std::pair{151u,177u}, std::pair{179u,180u}, std::pair{183u,183u} })
+                            if (!CosmeticShading_CopyTunicRange(spec.path, copy.scratch.data(), spec.size,
+                                                               range.first, range.second, color, true)) return 0;
+                    }
+                } else {
+                    const u32 first = form == PLAYER_FORM_DEKU ? 243 : 0;
+                    const u32 last = form == PLAYER_FORM_DEKU ? 254 : form == PLAYER_FORM_GORON ? 127 : 12;
+                    // Rolled Goron is shaded directly; skeletal cloth uses the native white palette + prim color.
+                    const Color_RGBA8 base = form == PLAYER_FORM_GORON &&
+                        strcmp(spec.path, "objects/object_link_goron/object_link_goron_Tex_00CEB8") == 0
+                            ? color : Color_RGBA8{255, 255, 255, 255};
+                    if (!CosmeticShading_CopyTunicRange(spec.path, copy.scratch.data(), spec.size,
+                                                       first, last, base, false)) return 0;
+                }
+            }
+            if (copy.bytes != copy.scratch) {
+                if (!refreshed) cache->Invalidate();
+                memcpy(copy.bytes.data(), copy.scratch.data(), spec.size);
+                refreshed = true;
+            }
+        }
+    } catch (const std::bad_alloc&) { return 0; }
+
+    bytes = ALIGN16(bytes);
+    auto gfx = play->state.gfxCtx;
+    if (humanTunicGfx != gfx || humanTunicFrame != gfx->gfxPoolIdx) {
+        humanTunicGfx = gfx; humanTunicFrame = gfx->gfxPoolIdx; humanTunicBytes = 0;
+    }
+    const auto front = reinterpret_cast<uintptr_t>(gfx->polyOpa.p);
+    const auto tail = reinterpret_cast<uintptr_t>(gfx->polyOpa.d);
+    if (bytes > kHumanTunicFrameBytes - humanTunicBytes || tail < front ||
+        tail - front < bytes + kHumanTunicArenaReserve) return 0;
+    // Same bounded frame budget/lifetime as Human; heap texture storage belongs only to this peer.
+    auto commands = static_cast<Gfx*>(GRAPH_ALLOC(gfx, bytes));
+    humanTunicBytes += bytes;
+    Gfx* tint = commands;
+    commands[0] = gsDPSetPrimColor(0, form == PLAYER_FORM_FIERCE_DEITY ? 0x80 : 0, color.r, color.g, color.b, 255);
+    commands[1] = gsDPPipeSync(); commands[2] = gsSPEndDisplayList(); commands += 3;
+    for (size_t index = 0; index < catalogue.materialCount; ++index) {
+        const auto& material = catalogue.materials[index];
+        const auto& source = lists[index]->Instructions;
+        memcpy(commands, source.data(), source.size() * sizeof(Gfx));
+        for (size_t slot = 0; slot < source.size();) {
+            const auto op = source[slot].words.w0 >> 24;
+
+            if (op == G_SETTIMG_OTR_HASH) {
+                const uint64_t hash = (uint64_t(source[slot + 1].words.w0) << 32) | source[slot + 1].words.w1;
+                for (size_t texture = 0; texture < cache->count; ++texture) {
+                    if (hash != cache->textures[texture].hash) continue;
+                    commands[slot].words.w0 = (uintptr_t(G_SETTIMG) << 24) | (source[slot].words.w0 & 0x00FFFFFF);
+                    commands[slot].words.w1 = reinterpret_cast<uintptr_t>(cache->textures[texture].bytes.data());
+                    commands[slot + 1] = gsDPNoOp();
+                    break;
+                }
+            }
+            slot += FormCommandStride(op);
+        }
+        for (const auto& site : material.sites) {
+            if (site.index < 0) continue;
+            commands[site.index] = gsSPDisplayList(site.nativeColor == backToWhite ? backToWhite : tint);
+        }
+        materials->paths[index] = material.path;
+        materials->originals[index] = source.data();
+        materials->copies[index] = commands;
+        commands += source.size();
+    }
+    materials->count = static_cast<u8>(catalogue.materialCount);
+    return 1;
+}
+namespace {
+Gfx* FormTunicDList(const CosmeticFormTunicMaterials* materials, Gfx* original, bool finsOnly) {
+    if (materials == nullptr || materials->count > COSMETIC_FORM_TUNIC_MATERIALS || original == nullptr) return original;
+    auto eligible = [&](size_t index) {
+        return !finsOnly || strcmp(materials->paths[index], "objects/object_link_zora/object_link_zora_DL_00CC38") == 0 ||
+                           strcmp(materials->paths[index], "objects/object_link_zora/object_link_zora_DL_00CDA0") == 0;
+    };
+    for (size_t index = 0; index < materials->count; ++index)
+        if (eligible(index) && original == materials->originals[index]) return materials->copies[index];
+    const uintptr_t address = reinterpret_cast<uintptr_t>(original);
+    if (address <= UINT32_MAX || (address & 1) != 0 || address > 0x0000FFFFFFFFFFFFULL) return original;
+    const char* path = reinterpret_cast<const char*>(original);
+    if (strncmp(path, "__OTR__", 7) != 0) return original;
+    for (size_t index = 0; index < materials->count; ++index)
+        if (eligible(index) && strcmp(path + 7, materials->paths[index]) == 0) return materials->copies[index];
+    return original;
+}
+}
+extern "C" Gfx* CosmeticEditor_FormTunicDList(const CosmeticFormTunicMaterials* materials, Gfx* original) {
+    return FormTunicDList(materials, original, false);
+}
+namespace {
+void TunicPostDraw(const CosmeticHumanTunicMaterials* human, const CosmeticFormTunicMaterials* form,
+                   Gfx* begin, Gfx* end, bool finsOnly) {
+    const auto first = reinterpret_cast<uintptr_t>(begin), last = reinterpret_cast<uintptr_t>(end);
+    if (begin == nullptr || end == nullptr || last < first ||
+        (last - first) % sizeof(Gfx) != 0 || (last - first) / sizeof(Gfx) > 1024) return;
+    const size_t count = (last - first) / sizeof(Gfx);
+    const Gfx push = gsSPDisplayList(nullptr);
+    // Validate the entire actor-owned span first; hash continuation words are not commands.
+    for (size_t index = 0; index < count;) {
+        const size_t stride = FormCommandStride(begin[index].words.w0 >> 24);
+        if (stride > count - index) return;
+        index += stride;
+    }
+    for (size_t index = 0; index < count;) {
+        auto& cmd = begin[index];
+        const auto op = cmd.words.w0 >> 24;
+        if (op == G_DL && cmd.words.w0 == push.words.w0) {
+            auto original = reinterpret_cast<Gfx*>(cmd.words.w1);
+            auto replacement = CosmeticEditor_HumanTunicDList(human, original);
+            replacement = FormTunicDList(form, replacement, finsOnly);
+            cmd.words.w1 = reinterpret_cast<uintptr_t>(replacement);
+        }
+        index += FormCommandStride(op);
+    }
+}
+}
+extern "C" void CosmeticEditor_FormTunicPostDraw(const CosmeticFormTunicMaterials* materials, Gfx* begin, Gfx* end) {
+    if (materials != nullptr && materials->count != 0) TunicPostDraw(nullptr, materials, begin, end, true);
+}
+extern "C" void CosmeticEditor_TunicPostDraw(const CosmeticHumanTunicMaterials* human,
+                                            const CosmeticFormTunicMaterials* form, Gfx* begin, Gfx* end) {
+    TunicPostDraw(human, form, begin, end, false);
+}
+
+#endif
 
 // HUD.Hearts
 

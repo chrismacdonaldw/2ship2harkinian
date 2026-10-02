@@ -7,8 +7,12 @@
 #include <libultraship/libultra/types.h>
 
 std::vector<std::string> Rando::Spoiler::spoilerOptions;
-const std::filesystem::path randomizerFolderPath(Ship::Context::GetPathRelativeToAppDirectory("randomizer",
-                                                                                              appShortName));
+// Resolve on first use; hosted mode is unknown at DLL load.
+static const std::filesystem::path& RandomizerFolderPath() {
+    static const std::filesystem::path path(
+        Ship::Context::GetPathRelativeToAppDirectory(HostedDataFolder("randomizer"), appShortName));
+    return path;
+}
 
 void Rando::Spoiler::SelectSpoiler(s32 index) {
     bool generateNew = (index <= 0) || (index >= (s32)Rando::Spoiler::spoilerOptions.size());
@@ -27,12 +31,12 @@ void Rando::Spoiler::RefreshOptions() {
     s32 spoilerFileIndex = -1;
 
     // ensure the randomizer folder exists
-    if (!std::filesystem::exists(randomizerFolderPath)) {
-        std::filesystem::create_directory(randomizerFolderPath);
+    if (!std::filesystem::exists(RandomizerFolderPath())) {
+        std::filesystem::create_directories(RandomizerFolderPath());
     }
 
     // Add all files in the randomizer folder to the list of spoiler options
-    for (const auto& entry : std::filesystem::directory_iterator(randomizerFolderPath)) {
+    for (const auto& entry : std::filesystem::directory_iterator(RandomizerFolderPath())) {
         if (entry.is_regular_file()) {
             std::string fileName = entry.path().filename().string();
             Rando::Spoiler::spoilerOptions.push_back(fileName);

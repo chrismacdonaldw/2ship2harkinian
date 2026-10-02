@@ -646,6 +646,10 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             ItemId itemId = StaticData::Items[randoItemId].itemId;
             return INV_CONTENT(itemId) != itemId;
         }
+#ifdef DIPTYCH_GAME_MODULE
+        case RI_DIPTYCH_FOREIGN:
+            return !hasObtainedCheck;
+#endif
         default:
             break;
     }

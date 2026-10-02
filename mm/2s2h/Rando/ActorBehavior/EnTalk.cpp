@@ -46,8 +46,7 @@ void ApplyRemainsHint(u16* textId, bool* loadFromMessageTable) {
         }
 
         icon = Rando::StaticData::GetIconForZMessage(randoItemId);
-        RandoCheckId randoCheckId = Rando::FindItemPlacement(randoItemId);
-        CustomMessage::Replace(&msg, "{{location}}", Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
+        CustomMessage::Replace(&msg, "{{location}}", Rando::GetItemLocationNameForHint(randoItemId));
     }
 
     CustomMessage::Entry entry = {
@@ -121,7 +120,8 @@ void ApplyTransformationHints(u16* textId, bool* loadFromMessageTable) {
             }
             CustomMessage::Replace(&msg, "{{locations}}", locationStr);
         } else {
-            CustomMessage::Replace(&msg, "{{locations}}", "%gLink's pocket%w");
+            const std::string abroad = Rando::AbroadLocationNameForHint(randoItemId);
+            CustomMessage::Replace(&msg, "{{locations}}", abroad.empty() ? "%gLink's pocket%w" : abroad);
         }
     }
 

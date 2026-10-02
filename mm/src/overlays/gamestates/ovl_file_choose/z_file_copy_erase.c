@@ -18,6 +18,9 @@ s16 D_8081424C[3][3] = {
 };
 
 s16 sEraseDelayTimer = 15;
+#ifdef DIPTYCH_GAME_MODULE
+int Diptych_BeforeErase(int fileNum);
+#endif
 
 /**
  * Move buttons into place for the select source screen and fade in the proper labels.
@@ -976,6 +979,16 @@ void FileSelect_EraseConfirm(GameState* thisx) {
         this->actionTimer = 4;
         Audio_PlaySfx(NA_SE_SY_FSEL_CLOSE);
     } else if (CHECK_BTN_ANY(input->press.button, BTN_A | BTN_START)) {
+#ifdef DIPTYCH_GAME_MODULE
+        if (!Diptych_BeforeErase(this->selectedFileIndex)) {
+            this->buttonIndex = this->selectedFileIndex;
+            this->nextTitleLabel = FS_TITLE_ERASE_FILE;
+            this->configMode = CM_EXIT_TO_ERASE_SELECT_1;
+            this->actionTimer = 4;
+            Audio_PlaySfx(NA_SE_SY_FSEL_ERROR);
+            return;
+        }
+#endif
         Sram_EraseSave(this, sramCtx, this->selectedFileIndex);
         if (!gSaveContext.flashSaveAvailable) {
             this->configMode = CM_ERASE_ANIM_1;

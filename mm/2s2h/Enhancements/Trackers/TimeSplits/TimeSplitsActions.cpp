@@ -23,6 +23,11 @@ uint64_t GetUnixTimestamp();
 #define CVAR CVarGetInteger(CVAR_NAME, 0)
 
 nlohmann::json TimesplitObject_to_json(const TimesplitObject& split) {
+#ifdef DIPTYCH_GAME_MODULE
+    if (splitSource != nullptr) {
+        return splitSource->toFile(split);
+    }
+#endif
     return nlohmann::json{
         { "splitId", split.splitId },
         { "splitName", split.splitName },
@@ -34,6 +39,11 @@ nlohmann::json TimesplitObject_to_json(const TimesplitObject& split) {
 }
 
 TimesplitObject json_to_TimesplitObject(const nlohmann::json& jsonSplit) {
+#ifdef DIPTYCH_GAME_MODULE
+    if (splitSource != nullptr) {
+        return splitSource->fromFile(jsonSplit);
+    }
+#endif
     TimesplitObject split;
     split.splitId = jsonSplit["splitId"];
     split.splitName = jsonSplit["splitName"].get<std::string>();
@@ -218,8 +228,7 @@ void UpdateSplitStatusBySceneId(uint32_t sceneId) {
     }
 
     if (splitList[activeIndex].splitType == SPLIT_TYPE_SCENE && splitList[activeIndex].splitId == sceneId) {
-        splitList[activeIndex].splitCurrentTime =
-            ((GetUnixTimestamp() - gSaveContext.save.shipSaveInfo.fileCreatedAt) / 100);
+        splitList[activeIndex].splitCurrentTime = GetTotalTime();
         splitList[activeIndex].splitStatus = SPLIT_COMPLETE;
 
         if (activeIndex == splitList.size() - 1) {
@@ -238,8 +247,7 @@ void UpdateSplitStatusById(uint32_t itemId) {
     }
 
     if (splitList[activeIndex].splitId == itemId) {
-        splitList[activeIndex].splitCurrentTime =
-            ((GetUnixTimestamp() - gSaveContext.save.shipSaveInfo.fileCreatedAt) / 100);
+        splitList[activeIndex].splitCurrentTime = GetTotalTime();
         splitList[activeIndex].splitStatus = SPLIT_COMPLETE;
 
         if (activeIndex == splitList.size() - 1) {
@@ -296,6 +304,11 @@ void GetSplitByActorId(int16_t actorId, uint32_t specialType = 0) {
 
 void SplitLoadComparisonList() {
     std::string filename = Ship::Context::GetPathRelativeToAppDirectory("2S2HTimeSplitData.json");
+#ifdef DIPTYCH_GAME_MODULE
+    if (splitSource != nullptr) {
+        filename = splitSource->filePath();
+    }
+#endif
     json compareFile;
     json listArray = nlohmann::json::array();
 
@@ -317,6 +330,11 @@ void SplitLoadComparisonList() {
 
 void SplitSaveFileAction(uint32_t action, std::string listName) {
     std::string filename = Ship::Context::GetPathRelativeToAppDirectory("2S2HTimeSplitData.json");
+#ifdef DIPTYCH_GAME_MODULE
+    if (splitSource != nullptr) {
+        filename = splitSource->filePath();
+    }
+#endif
     json saveFile;
     json listArray = nlohmann::json::array();
 

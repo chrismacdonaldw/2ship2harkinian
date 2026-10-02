@@ -41,7 +41,8 @@ bool Rando::Spoiler::HandleFileDropped(char* filePath) {
         // Save the spoiler file to the randomizer folder
         std::string spoilerFile = std::filesystem::path(filePath).filename().string();
         std::string spoilerFilePath =
-            Ship::Context::GetPathRelativeToAppDirectory("randomizer/" + spoilerFile, appShortName);
+            Ship::Context::GetPathRelativeToAppDirectory(HostedDataFolder("randomizer") + "/" + spoilerFile,
+                                                         appShortName);
         std::filesystem::copy_file(filePath, spoilerFilePath, std::filesystem::copy_options::overwrite_existing);
 
         // Set the spoiler file to the new file

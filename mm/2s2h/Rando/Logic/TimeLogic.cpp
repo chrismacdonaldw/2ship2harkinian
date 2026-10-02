@@ -81,7 +81,7 @@ uint64_t ExpandTimeForward(uint64_t timeSlices, const RandoRegion& region) {
 
 // Owned time calculation - aggregates all owned half-day time slices
 uint64_t GetOwnedTimeSlices() {
-    if (!RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE]) {
+    if (!LS_RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE]) {
         return TIME_ALL_SLICES;
     }
 

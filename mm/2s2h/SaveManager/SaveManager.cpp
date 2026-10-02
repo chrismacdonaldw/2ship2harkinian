@@ -1,4 +1,12 @@
 #include "SaveManager.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "../../../../host/native_save.h"
+#include "2s2h/DiptychModule_Goals.h"
+static uint64_t sDiptychFlashWrites[14]{};
+uint64_t SaveManager_FlashWriteSerial(int operation) {
+    return operation >= 0 && operation < 14 ? sDiptychFlashWrites[operation] : 0;
+}
+#endif
 
 #include <fstream>
 #include <filesystem>
@@ -108,21 +116,35 @@ int SaveManager_MigrateSave(nlohmann::json& j) {
     }
 }
 
-void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j) {
+bool SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j) {
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
-    if (!std::filesystem::exists(savesFolderPath)) {
-        std::filesystem::create_directory(savesFolderPath);
-    }
-
     try {
+        std::filesystem::create_directories(savesFolderPath);
+#ifdef DIPTYCH_GAME_MODULE
+        return native_save::Publish(filePath, j.dump(4) + "\n");
+#else
         std::ofstream o(filePath);
         o << std::setw(4) << j << std::endl;
         o.close();
-    } catch (...) { SPDLOG_ERROR("Failed to write save file"); }
+        return !o.fail();
+#endif
+    } catch (...) {
+        SPDLOG_ERROR("Failed to write save file");
+        return false;
+    }
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+bool Diptych_BeforeDeleteSaveFile(const std::filesystem::path& fileName);
+#endif
+
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
+#ifdef DIPTYCH_GAME_MODULE
+    if (!Diptych_BeforeDeleteSaveFile(fileName)) {
+        return;
+    }
+#endif
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
     try {
@@ -451,7 +473,16 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                 j["version"] = CURRENT_SAVE_VERSION;
                 j["type"] = "2S2H_SAVE";
 
+#ifdef DIPTYCH_GAME_MODULE
+                if (DiptychGoals::CycleSavePending()) {
+                    j.erase("owlSave");
+                }
+                if (SaveManager_WriteSaveFile(fileName, j)) {
+                    sDiptychFlashWrites[flashSave]++;
+                }
+#else
                 SaveManager_WriteSaveFile(fileName, j);
+#endif
             } else {
                 // If IS_VALID_FILE fails, we should delete the save file, even if there is an owl save in it, because
                 // they just deleted the new cycle save
@@ -490,7 +521,13 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                 j["version"] = CURRENT_SAVE_VERSION;
                 j["type"] = "2S2H_SAVE";
 
+#ifdef DIPTYCH_GAME_MODULE
+                if (SaveManager_WriteSaveFile(fileName, j)) {
+                    sDiptychFlashWrites[flashSave]++;
+                }
+#else
                 SaveManager_WriteSaveFile(fileName, j);
+#endif
             } else {
                 // If IS_VALID_FILE fails, and there is still a new cycle save present, we just want to only remove the
                 // owl save and write the new cycle save back

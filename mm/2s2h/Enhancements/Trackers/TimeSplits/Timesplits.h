@@ -1,6 +1,9 @@
 #include <ship/window/gui/GuiWindow.h>
 #include <vector>
 #include <map>
+#ifdef DIPTYCH_GAME_MODULE
+#include <nlohmann/json.hpp>
+#endif
 
 class TimesplitsWindow : public Ship::GuiWindow {
   public:
@@ -48,6 +51,16 @@ typedef struct {
     uint32_t splitType;
 } TimesplitObject;
 
+#ifdef DIPTYCH_GAME_MODULE
+typedef struct {
+    uint32_t (*totalTime)();
+    std::string (*filePath)();
+    nlohmann::json (*toFile)(const TimesplitObject& split);
+    TimesplitObject (*fromFile)(const nlohmann::json& split);
+} SplitSource;
+extern const SplitSource* splitSource;
+#endif
+
 typedef struct {
     uint32_t timeDisplay;
     ImVec4 colorDisplay;
@@ -67,6 +80,7 @@ extern std::map<uint32_t, std::vector<uint32_t>> itemSubMenuList;
 extern std::map<uint32_t, ImVec4> songColorMap;
 extern uint32_t comparedIndex;
 extern bool shouldPopUpOpen;
+extern uint32_t GetTotalTime();
 extern TimesplitObject GetSplitObjectById(uint32_t itemId);
 extern ImVec2 GetItemImageSizeById(uint32_t itemId);
 extern void TableCellCenteredText(ImVec4 color, const char* text);

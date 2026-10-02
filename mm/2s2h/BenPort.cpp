@@ -171,10 +171,18 @@ OTRGlobals::OTRGlobals() {
     context->InitResourceManager({ portArchivePath }, {}, 3, true);
     context->InitConsole();
 
-    auto benInputEditorWindow = std::make_shared<BenInputEditorWindow>("gWindows.BenInputEditor", "2S2H Input Editor");
-    benFast3dWindow =
-        std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ benInputEditorWindow }));
-    context->InitWindow(benFast3dWindow);
+    if (context->GetWindow() == nullptr) {
+        auto benInputEditorWindow =
+            std::make_shared<BenInputEditorWindow>("gWindows.BenInputEditor", "2S2H Input Editor");
+        benFast3dWindow = std::make_shared<Fast::Fast3dWindow>(
+            std::vector<std::shared_ptr<Ship::GuiWindow>>({ benInputEditorWindow }));
+        context->InitWindow(benFast3dWindow);
+    } else {
+        // A second Fast3dWindow would replace the global renderer.
+        benFast3dWindow = std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow());
+        context->GetWindow()->GetGui()->AddGuiWindow(
+            std::make_shared<BenInputEditorWindow>("gWindows.BenInputEditor", "2S2H Input Editor"));
+    }
 
     BenGui::SetupMenu();
 
@@ -251,12 +259,25 @@ static bool RemoveArchiveAcrossAppDirs(const std::string& fileName) {
     return !std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs(fileName, appShortName));
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+extern "C" int gDiptychHosted;
+#endif
+
+std::string HostedDataFolder(const std::string& folder) {
+#ifdef DIPTYCH_GAME_MODULE
+    if (gDiptychHosted) {
+        return folder + "/2s2h";
+    }
+#endif
+    return folder;
+}
+
 void CheckAndCreateModFolder() {
     try {
-        std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
+        std::string modsPath = Ship::Context::LocateFileAcrossAppDirs(HostedDataFolder("mods"), appShortName);
         if (!std::filesystem::exists(modsPath)) {
             // Create mods folder relative to app dir
-            modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods", appShortName);
+            modsPath = Ship::Context::GetPathRelativeToAppDirectory(HostedDataFolder("mods"), appShortName);
             std::string filePath = modsPath + "/custom_mod_files_go_here.txt";
             if (std::filesystem::create_directories(modsPath)) {
                 std::ofstream(filePath).close();
@@ -372,6 +393,12 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                 continue;
             }
             case ES_WINDOWS: {
+#ifdef DIPTYCH_GAME_MODULE
+                if (gDiptychHosted) {
+                    extractStep = args.empty() ? ES_EXTRACT : ES_EXTRACT_ARGS;
+                    continue;
+                }
+#endif
                 switch (windowsStep) {
                     case WS_TEMP: {
 #ifdef _WIN32
@@ -758,7 +785,12 @@ void OTRGlobals::ScaleImGui() {
     }
 
     float scale = imguiScaleOptionToValue[imGuiScaleIndex];
+#ifdef DIPTYCH_GAME_MODULE
+    // ImGui style is shared; scale relative to the applied scale, not this game's previous scale.
+    float newScale = scale / ImGui::GetIO().FontGlobalScale;
+#else
     float newScale = scale / previousImGuiScale;
+#endif
     ImGui::GetStyle().ScaleAllSizes(newScale);
     ImGui::GetIO().FontGlobalScale = scale;
     previousImGuiScale = scale;
@@ -809,13 +841,55 @@ static struct {
     std::mutex mutex;
     bool running;
     bool processing;
+#ifdef DIPTYCH_GAME_MODULE
+    bool diptychActive;
+    bool lastBatchLoud;
+    int doorBlendFrames;
+#endif
 } audio;
+
+#ifdef DIPTYCH_GAME_MODULE
+// Long silent frames starve the shared player; padding avoids a slow refill after scene loads.
+static void Diptych_PadSilence() {
+    constexpr int kSilenceFrames = 528;
+    static const s16 silence[kSilenceFrames * 2] = {};
+    if (AudioPlayer_Buffered() < AudioPlayer_GetDesiredBuffered() / 2) {
+        AudioPlayer_Play(reinterpret_cast<const u8*>(silence), sizeof(silence));
+    }
+}
+
+extern "C" void OTRAudio_SetDiptychActive(bool active) {
+    {
+        std::unique_lock<std::mutex> Lock(audio.mutex);
+        audio.diptychActive = active;
+    }
+    audio.cv_to_thread.notify_all();
+}
+
+extern "C" void OTRAudio_DiptychDoorEntry(int blendMs) {
+    {
+        std::unique_lock<std::mutex> Lock(audio.mutex);
+        audio.lastBatchLoud = false;
+        audio.doorBlendFrames = blendMs * 32;
+    }
+    audio.cv_to_thread.notify_all();
+}
+#endif
 
 void OTRAudio_Thread() {
     while (audio.running) {
         {
             std::unique_lock<std::mutex> Lock(audio.mutex);
             while (!audio.processing && audio.running) {
+#ifdef DIPTYCH_GAME_MODULE
+                if (audio.diptychActive && (!audio.lastBatchLoud || audio.doorBlendFrames > 0)) {
+                    audio.cv_to_thread.wait_for(Lock, std::chrono::milliseconds(5));
+                    if (!audio.processing && audio.running && audio.diptychActive) {
+                        Diptych_PadSilence();
+                    }
+                    continue;
+                }
+#endif
                 audio.cv_to_thread.wait(Lock);
             }
 
@@ -845,6 +919,17 @@ void OTRAudio_Thread() {
 
         AudioPlayer_Play((u8*)audio_buffer,
                          num_audio_samples * (sizeof(int16_t) * NUM_AUDIO_CHANNELS * AUDIO_FRAMES_PER_UPDATE));
+#ifdef DIPTYCH_GAME_MODULE
+        {
+            constexpr int kSilentPeak = 128;
+            const u32 count = num_audio_samples * NUM_AUDIO_CHANNELS * AUDIO_FRAMES_PER_UPDATE;
+            audio.lastBatchLoud = false;
+            for (u32 i = 0; i < count && !audio.lastBatchLoud; i++) {
+                audio.lastBatchLoud = audio_buffer[i] > kSilentPeak || audio_buffer[i] < -kSilentPeak;
+            }
+            audio.doorBlendFrames = std::max(0, audio.doorBlendFrames - static_cast<int>(count / NUM_AUDIO_CHANNELS));
+        }
+#endif
 
         audio.processing = false;
         audio.cv_from_thread.notify_one();
@@ -958,6 +1043,12 @@ extern "C" void Messagebox_ShowErrorBox(char* title, char* body) {
 bool VerifyArchiveVersion(ArchiveVersion version) {
     return version.major != INT16_MAX && version.major != gBuildVersionMajor;
 }
+
+#ifdef DIPTYCH_GAME_MODULE
+bool Diptych_ArchiveCompatible(const std::string& path) {
+    return ReadPortVersionFromArchive(path, true).major == gBuildVersionMajor;
+}
+#endif
 
 extern "C" void InitOTR(int argc, char* argv[]) {
     OTRGlobals::Instance = new OTRGlobals();

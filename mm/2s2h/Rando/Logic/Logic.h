@@ -2,6 +2,7 @@
 #define RANDO_LOGIC_H
 
 #include "Rando/Rando.h"
+#include "Rando/Logic/LogicState.h"
 #include "Rando/ActorBehavior/Souls.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipUtils.h"
@@ -100,8 +101,6 @@ struct RegionTimeState {
     bool canStayOverTime;
 };
 
-extern uint64_t gCurrentRegionTime;
-
 // Helper: Convert runtime game time to TimeSlice enum
 TimeSlice TimeSliceFromGameTime(s32 day, u16 time);
 
@@ -115,16 +114,63 @@ std::unordered_map<RandoRegionId, RegionTimeState> InitializeRegionTimeStates(Ra
 void EnsureRegionTimeState(std::unordered_map<RandoRegionId, RegionTimeState>& regionTimeStates,
                            RandoRegionId regionId);
 
-// Helper to set current region time
 inline void SetCurrentRegionTime(const std::unordered_map<RandoRegionId, RegionTimeState>& regionTimeStates,
                                  RandoRegionId regionId) {
-    gCurrentRegionTime = regionTimeStates.at(regionId).timeSlices;
+    LS_REGION_TIME = regionTimeStates.at(regionId).timeSlices;
 }
 
 void FindReachableRegions(RandoRegionId currentRegion, std::set<RandoRegionId>& reachableRegions,
                           std::unordered_map<RandoRegionId, RegionTimeState>& regionTimeStates);
+
+constexpr uint64_t kArrivalDefaultTime = ~0ULL;
+struct Arrival {
+    RandoRegionId region;
+    uint64_t timeSlices = kArrivalDefaultTime;
+};
+
+struct ReachedExit {
+    RandoRegionId fromRegion;
+    s32 entrance;
+    RandoRegionId toRegion;
+    uint64_t timeSlices;
+};
+
+struct SearchResult {
+    std::set<RandoRegionId> regions;
+    std::unordered_map<RandoRegionId, RegionTimeState> regionTimes;
+    std::vector<RandoCheckId> checks;
+    std::vector<ReachedExit> exits;
+    State state;
+
+    std::set<const void*> appliedEvents;
+    std::vector<char> checkReached;
+};
+
+// Report rule-valid exits even when filtered: a closed exit may be a game link out of MM.
+class SearchGate {
+  public:
+    virtual bool Connection(RandoRegionId from, RandoRegionId to) const = 0;
+    virtual bool Exit(RandoRegionId from, s32 entrance) const = 0;
+    virtual bool Check(RandoRegionId region, RandoCheckId check) const = 0;
+    virtual bool Event(RandoRegionId region, RandoEvent event) const = 0;
+
+  protected:
+    ~SearchGate() = default;
+};
+extern thread_local const SearchGate* tSearchGate;
+
+SearchResult Search(const State& state, const std::vector<Arrival>& arrivals, const SearchGate* gate = nullptr);
+void SearchResume(SearchResult& result, const State& state, const std::vector<Arrival>& arrivals,
+                  const SearchGate* gate = nullptr);
 RandoRegionId GetRegionIdFromEntrance(s32 entrance);
 void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
+struct PoolInputs {
+    std::vector<RandoCheckId> excludedChecks;
+    std::vector<RandoItemId> computedStartingItems;
+    std::function<s32(s32, s32)> random;
+};
+void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool,
+                   const PoolInputs& inputs);
 void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
@@ -175,12 +221,12 @@ void ValidateRegionTimeOwnership(RandoRegionId regionId, RandoCheckId checkId, u
 } // namespace TimeLogic
 
 // TODO: This may not stay here
-#define IS_DEKU (GET_PLAYER_FORM == PLAYER_FORM_DEKU)
-#define IS_ZORA (GET_PLAYER_FORM == PLAYER_FORM_ZORA)
-#define IS_DEITY (GET_PLAYER_FORM == PLAYER_FORM_FIERCE_DEITY)
-#define IS_GORON (GET_PLAYER_FORM == PLAYER_FORM_GORON)
-#define IS_HUMAN (GET_PLAYER_FORM == PLAYER_FORM_HUMAN)
-#define HAS_ITEM(item) (INV_CONTENT(item) == item)
+#define IS_DEKU (LS_GET_PLAYER_FORM == PLAYER_FORM_DEKU)
+#define IS_ZORA (LS_GET_PLAYER_FORM == PLAYER_FORM_ZORA)
+#define IS_DEITY (LS_GET_PLAYER_FORM == PLAYER_FORM_FIERCE_DEITY)
+#define IS_GORON (LS_GET_PLAYER_FORM == PLAYER_FORM_GORON)
+#define IS_HUMAN (LS_GET_PLAYER_FORM == PLAYER_FORM_HUMAN)
+#define HAS_ITEM(item) (LS_INV_CONTENT(item) == item)
 #define CAN_BE_DEKU (IS_DEKU || HAS_ITEM(ITEM_MASK_DEKU))
 #define CAN_BE_ZORA (IS_ZORA || HAS_ITEM(ITEM_MASK_ZORA))
 #define CAN_BE_DEITY (IS_DEITY || HAS_ITEM(ITEM_MASK_FIERCE_DEITY))
@@ -188,38 +234,38 @@ void ValidateRegionTimeOwnership(RandoRegionId regionId, RandoCheckId checkId, u
 #define CAN_BE_HUMAN                                                                                        \
     (IS_HUMAN || (IS_DEITY && HAS_ITEM(ITEM_MASK_FIERCE_DEITY)) || (IS_ZORA && HAS_ITEM(ITEM_MASK_ZORA)) || \
      (IS_DEKU && HAS_ITEM(ITEM_MASK_DEKU)) || (IS_GORON && HAS_ITEM(ITEM_MASK_GORON)))
-#define CHECK_MAX_HP(TARGET_HP) ((TARGET_HP * 16) <= gSaveContext.save.saveInfo.playerData.healthCapacity)
-#define HAS_MAGIC (gSaveContext.save.saveInfo.playerData.isMagicAcquired)
+#define CHECK_MAX_HP(TARGET_HP) ((TARGET_HP * 16) <= LS_HEALTH_CAPACITY)
+#define HAS_MAGIC (LS_IS_MAGIC_ACQUIRED)
 #define CAN_HOOK_SCARECROW \
     (HAS_ITEM(ITEM_OCARINA_OF_TIME) && HAS_ITEM(ITEM_HOOKSHOT) && canPlaySong(OCARINA_SONG_SCARECROW_SPAWN))
 #define CAN_USE_EXPLOSIVE                             \
     (HAS_ITEM(ITEM_BOMB) || HAS_ITEM(ITEM_BOMBCHU) || \
-     (HAS_ITEM(ITEM_MASK_BLAST) && GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) > EQUIP_VALUE_SHIELD_NONE))
-#define CAN_USE_HUMAN_SWORD (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD) >= EQUIP_VALUE_SWORD_KOKIRI)
+     (HAS_ITEM(ITEM_MASK_BLAST) && LS_GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) > EQUIP_VALUE_SHIELD_NONE))
+#define CAN_USE_HUMAN_SWORD (LS_GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD) >= EQUIP_VALUE_SWORD_KOKIRI)
 #define CAN_USE_SWORD (CAN_USE_HUMAN_SWORD || HAS_ITEM(ITEM_SWORD_GREAT_FAIRY) || CAN_BE_DEITY)
-#define CAN_FULLY_CUT_KEATON_GRASS                                                      \
-    (HAS_MAGIC && (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD) >= EQUIP_VALUE_SWORD_RAZOR) && \
-     CHECK_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK))
+#define CAN_FULLY_CUT_KEATON_GRASS                                                         \
+    (HAS_MAGIC && (LS_GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD) >= EQUIP_VALUE_SWORD_RAZOR) && \
+     LS_CHECK_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK))
 // Be careful here, as some checks require you to play the song as a specific form
-#define CAN_PLAY_SONG(song)                                                   \
-    (HAS_ITEM(ITEM_OCARINA_OF_TIME) && CHECK_QUEST_ITEM(QUEST_SONG_##song) && \
+#define CAN_PLAY_SONG(song)                                                      \
+    (HAS_ITEM(ITEM_OCARINA_OF_TIME) && LS_CHECK_QUEST_ITEM(QUEST_SONG_##song) && \
      Rando::Logic::canPlaySong((QUEST_SONG_##song - QUEST_SONG_SONATA) + OCARINA_SONG_SONATA))
 #define CAN_RIDE_EPONA (CAN_PLAY_SONG(EPONA))
-#define GBT_CAN_REVERSE_WATER_FLOW                                                         \
-    (RANDO_EVENTS[RE_GREAT_BAY_RED_SWITCH_1] && RANDO_EVENTS[RE_GREAT_BAY_RED_SWITCH_2] && \
+#define GBT_CAN_REVERSE_WATER_FLOW                                                               \
+    (LS_RANDO_EVENTS[RE_GREAT_BAY_RED_SWITCH_1] && LS_RANDO_EVENTS[RE_GREAT_BAY_RED_SWITCH_2] && \
      HAS_ITEM(ITEM_HOOKSHOT)) // Keeping for the sake of check tracker clarity
-#define GBT_GREEN_SWITCH_FLOW                                                                  \
-    (RANDO_EVENTS[RE_GREAT_BAY_GREEN_SWITCH_1] && RANDO_EVENTS[RE_GREAT_BAY_GREEN_SWITCH_2] && \
-     RANDO_EVENTS[RE_GREAT_BAY_GREEN_SWITCH_3])
+#define GBT_GREEN_SWITCH_FLOW                                                                        \
+    (LS_RANDO_EVENTS[RE_GREAT_BAY_GREEN_SWITCH_1] && LS_RANDO_EVENTS[RE_GREAT_BAY_GREEN_SWITCH_2] && \
+     LS_RANDO_EVENTS[RE_GREAT_BAY_GREEN_SWITCH_3])
 #define ONE_WAY_EXIT -1
-#define CAN_OWL_WARP(owlId) ((gSaveContext.save.saveInfo.playerData.owlActivationFlags >> owlId) & 1)
+#define CAN_OWL_WARP(owlId) ((LS_OWL_ACTIVATION_FLAGS >> owlId) & 1)
 #define SET_OWL_WARP(owlId) (gSaveContext.save.saveInfo.playerData.owlActivationFlags |= (1 << owlId))
 #define CLEAR_OWL_WARP(owlId) (gSaveContext.save.saveInfo.playerData.owlActivationFlags &= ~(1 << owlId))
-#define HAS_BOTTLE_ITEM(item) (Inventory_HasItemInBottle(item))
+#define HAS_BOTTLE_ITEM(item) (LS_Inventory_HasItemInBottle(item))
 // TODO: Maybe not reliable because of theif bird stealing bottle
-#define HAS_BOTTLE (INV_CONTENT(ITEM_BOTTLE) != ITEM_NONE)
+#define HAS_BOTTLE (LS_INV_CONTENT(ITEM_BOTTLE) != ITEM_NONE)
 #define CAN_USE_PROJECTILE (HAS_ITEM(ITEM_BOW) || HAS_ITEM(ITEM_HOOKSHOT) || (CAN_BE_DEKU && HAS_MAGIC) || CAN_BE_ZORA)
-#define CAN_ACCESS(access) (RANDO_EVENTS[RE_ACCESS_##access])
+#define CAN_ACCESS(access) (LS_RANDO_EVENTS[RE_ACCESS_##access])
 #define CAN_GROW_BEAN_PLANT        \
     (HAS_ITEM(ITEM_MAGIC_BEANS) && \
      (CAN_PLAY_SONG(STORMS) || (HAS_BOTTLE && (CAN_ACCESS(SPRING_WATER) || CAN_ACCESS(HOT_SPRING_WATER)))))
@@ -229,18 +275,19 @@ void ValidateRegionTimeOwnership(RandoRegionId regionId, RandoCheckId checkId, u
 #define CAN_USE_DAY2_RAIN_BEAN (CAN_GROW_BEAN_PLANT || (HAS_ITEM(ITEM_MAGIC_BEANS) && CLOCK_DAY2()))
 #define CAN_USE_MAGIC_ARROW(arrowType) (HAS_ITEM(ITEM_BOW) && HAS_ITEM(ITEM_ARROW_##arrowType) && HAS_MAGIC)
 #define CAN_LIGHT_TORCH_NEAR_ANOTHER (HAS_ITEM(ITEM_DEKU_STICK) || CAN_USE_MAGIC_ARROW(FIRE))
-#define KEY_COUNT(dungeon) (gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_##dungeon])
-#define CAN_AFFORD(rc)                                                                                                \
-    ((RANDO_SAVE_CHECKS[rc].price < 100) || (RANDO_SAVE_CHECKS[rc].price <= 200 && CUR_UPG_VALUE(UPG_WALLET) >= 1) || \
-     (CUR_UPG_VALUE(UPG_WALLET) >= 2))
+#define KEY_COUNT(dungeon) (LS_FOUND_DUNGEON_KEYS[DUNGEON_SCENE_INDEX_##dungeon])
+#define CAN_AFFORD(rc)                                                               \
+    ((LS_RANDO_SAVE_CHECKS[rc].price < 100) ||                                       \
+     (LS_RANDO_SAVE_CHECKS[rc].price <= 200 && LS_CUR_UPG_VALUE(UPG_WALLET) >= 1) || \
+     (LS_CUR_UPG_VALUE(UPG_WALLET) >= 2))
 #define HAS_ENOUGH_STRAY_FAIRIES(dungeonIndex) \
-    (gSaveContext.save.saveInfo.inventory.strayFairies[dungeonIndex] >= RANDO_SAVE_OPTIONS[RO_STRAY_FAIRIES_REQUIRED])
-#define FOUND_ALL_FROGS                                                                  \
-    (CHECK_WEEKEVENTREG(WEEKEVENTREG_33_01) && CHECK_WEEKEVENTREG(WEEKEVENTREG_32_40) && \
-     CHECK_WEEKEVENTREG(WEEKEVENTREG_32_80) && CHECK_WEEKEVENTREG(WEEKEVENTREG_33_02))
-#define CAN_USE_ABILITY(ability) Flags_GetRandoInf(RI_ABILITY_##ability - RI_ABILITY_SWIM + RANDO_INF_OBTAINED_SWIM)
+    (LS_STRAY_FAIRIES[dungeonIndex] >= LS_RANDO_SAVE_OPTIONS[RO_STRAY_FAIRIES_REQUIRED])
+#define FOUND_ALL_FROGS                                                                        \
+    (LS_CHECK_WEEKEVENTREG(WEEKEVENTREG_33_01) && LS_CHECK_WEEKEVENTREG(WEEKEVENTREG_32_40) && \
+     LS_CHECK_WEEKEVENTREG(WEEKEVENTREG_32_80) && LS_CHECK_WEEKEVENTREG(WEEKEVENTREG_33_02))
+#define CAN_USE_ABILITY(ability) LS_Flags_GetRandoInf(RI_ABILITY_##ability - RI_ABILITY_SWIM + RANDO_INF_OBTAINED_SWIM)
 #define HAS_ENOUGH_SKULLTULA_TOKENS(sceneId) \
-    (Inventory_GetSkullTokenCount(sceneId) >= RANDO_SAVE_OPTIONS[RO_SKULLTULA_TOKENS_REQUIRED])
+    (LS_Inventory_GetSkullTokenCount(sceneId) >= LS_RANDO_SAVE_OPTIONS[RO_SKULLTULA_TOKENS_REQUIRED])
 
 #define EVENT(randoEvent, condition)         \
     {                                        \
@@ -268,7 +315,6 @@ void ValidateRegionTimeOwnership(RandoRegionId regionId, RandoCheckId checkId, u
 // Usage in region definitions: .timeStayRestrictions = { STAY(TIME_NIGHT1_PM_08_00, !HAS_ROOM_KEY) }
 // If condition is false at the specified time, player is kicked out (expansion stops permanently)
 // Examples:
-//   STAY(TIME_NIGHT1_PM_08_00, !Flags_GetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY)) // Kicked out without room key
 //   STAY(TIME_NIGHT3_PM_10_00, false) // Always kicked out at this time (shop closes)
 #define STAY(timeSlice, condition)          \
     {                                       \
@@ -279,13 +325,23 @@ inline std::string LogicString(std::string condition) {
     if (condition == "true")
         return "";
 
-    return condition;
+    std::string shown;
+    shown.reserve(condition.size());
+    for (size_t i = 0; i < condition.size(); i++) {
+        bool tokenStart = i == 0 || !(isalnum((unsigned char)condition[i - 1]) || condition[i - 1] == '_');
+        if (tokenStart && condition.compare(i, 3, "LS_") == 0) {
+            i += 2;
+            continue;
+        }
+        shown += condition[i];
+    }
+    return shown;
 }
 
 inline uint8_t FoundOcarinaButtons() {
     uint8_t foundButtons = 0;
     for (int i = RANDO_INF_OBTAINED_OCARINA_BUTTON_A; i <= RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP; i++) {
-        if (Flags_GetRandoInf((RandoInf)i)) {
+        if (LS_Flags_GetRandoInf((RandoInf)i)) {
             foundButtons++;
         }
     }
@@ -295,72 +351,72 @@ inline uint8_t FoundOcarinaButtons() {
 inline bool canPlaySong(u8 songId) {
     switch (songId) {
         case OCARINA_SONG_SONATA:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT));
         case OCARINA_SONG_GORON_LULLABY:
         case OCARINA_SONG_GORON_LULLABY_INTRO:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT));
         case OCARINA_SONG_NEW_WAVE:
         case OCARINA_SONG_ELEGY:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN));
         case OCARINA_SONG_OATH:
         case OCARINA_SONG_WIND_FISH_ZORA:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
         case OCARINA_SONG_TIME:
         case OCARINA_SONG_INVERTED_TIME:
         case OCARINA_SONG_DOUBLE_TIME:
         case OCARINA_SONG_WIND_FISH_GORON:
         case OCARINA_SONG_EVAN_PART1:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN));
         case OCARINA_SONG_HEALING:
         case OCARINA_SONG_SARIAS:
         case OCARINA_SONG_EVAN_PART2:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN));
         case OCARINA_SONG_EPONAS:
         case OCARINA_SONG_WIND_FISH_HUMAN:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT));
         case OCARINA_SONG_SOARING:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
         case OCARINA_SONG_STORMS:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
         case OCARINA_SONG_SUNS:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
         case OCARINA_SONG_WIND_FISH_DEKU:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT));
         case OCARINA_SONG_SCARECROW_SPAWN:
             return FoundOcarinaButtons() >= 2;
         case OCARINA_SONG_TERMINA_WALL:
-            return (Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
-                    Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
+            return (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_DOWN) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_RIGHT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_LEFT) &&
+                    LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP));
         default:
             return true;
     }
@@ -385,7 +441,7 @@ inline bool CanAccessDungeon(DungeonSceneIndex dungeonIndex) {
         default:
             break;
     }
-    switch (RANDO_SAVE_OPTIONS[RO_ACCESS_DUNGEONS]) {
+    switch (LS_RANDO_SAVE_OPTIONS[RO_ACCESS_DUNGEONS]) {
         case RO_ACCESS_DUNGEONS_FORM_OR_SONG:
             return hasSongAccess || hasFormAccess;
         case RO_ACCESS_DUNGEONS_FORM_ONLY:
@@ -403,7 +459,7 @@ inline bool CanAccessDungeon(DungeonSceneIndex dungeonIndex) {
 inline uint32_t MoonMaskCount() {
     uint32_t count = 0;
     for (int i = ITEM_MASK_TRUTH; i <= ITEM_MASK_GIANT; i++) {
-        if (INV_CONTENT(i) == i) {
+        if (LS_INV_CONTENT(i) == i) {
             count++;
         }
     }
@@ -413,7 +469,7 @@ inline uint32_t MoonMaskCount() {
 inline uint32_t RemainsCount() {
     uint32_t count = 0;
     for (int i = QUEST_REMAINS_ODOLWA; i <= QUEST_REMAINS_TWINMOLD; i++) {
-        if (CHECK_QUEST_ITEM(i)) {
+        if (LS_CHECK_QUEST_ITEM(i)) {
             count++;
         }
     }
@@ -421,8 +477,8 @@ inline uint32_t RemainsCount() {
 }
 
 inline bool MeetsMoonRequirements() {
-    return RemainsCount() >= RANDO_SAVE_OPTIONS[RO_ACCESS_MOON_REMAINS_COUNT] &&
-           MoonMaskCount() >= RANDO_SAVE_OPTIONS[RO_ACCESS_MOON_MASKS_COUNT];
+    return RemainsCount() >= LS_RANDO_SAVE_OPTIONS[RO_ACCESS_MOON_REMAINS_COUNT] &&
+           MoonMaskCount() >= LS_RANDO_SAVE_OPTIONS[RO_ACCESS_MOON_MASKS_COUNT];
 }
 
 // ============================================================================
@@ -432,7 +488,7 @@ inline bool MeetsMoonRequirements() {
 inline uint32_t ClockCount() {
     uint32_t count = 0;
     for (int i = 0; i < 6; ++i) {
-        if (Flags_GetRandoInf(static_cast<RandoInf>(RANDO_INF_OBTAINED_CLOCK_DAY_1 + i))) {
+        if (LS_Flags_GetRandoInf(static_cast<RandoInf>(RANDO_INF_OBTAINED_CLOCK_DAY_1 + i))) {
             count++;
         }
     }
@@ -440,7 +496,7 @@ inline uint32_t ClockCount() {
 }
 
 inline bool SettingClocks() {
-    return RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE] != 0;
+    return LS_RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE] != 0;
 }
 
 // Centralized clock ownership check
@@ -448,7 +504,7 @@ inline bool OwnsClockHalfDay(int halfDayIndex) {
     if (halfDayIndex < 0 || halfDayIndex >= 6)
         return false;
     RandoInf clockFlag = static_cast<RandoInf>(RANDO_INF_OBTAINED_CLOCK_DAY_1 + halfDayIndex);
-    return Flags_GetRandoInf(clockFlag);
+    return LS_Flags_GetRandoInf(clockFlag);
 }
 
 // New consolidated helper that encapsulates ascending/descending/random logic
@@ -457,7 +513,7 @@ inline bool OwnsHalfDayForMode(int halfDayIndex) {
         return !SettingClocks(); // If not shuffling clocks, all time is available
     }
 
-    int clockMode = RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE_PROGRESSIVE];
+    int clockMode = LS_RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE_PROGRESSIVE];
     uint32_t totalClocks = ClockCount();
 
     switch (clockMode) {
@@ -483,24 +539,24 @@ inline bool OwnsHalfDayForMode(int halfDayIndex) {
 // ============================================================================
 
 inline bool RawAt(TimeSlice slice) {
-    return (gCurrentRegionTime & (TIME_BIT_ONE << slice)) != 0;
+    return (LS_REGION_TIME & (TIME_BIT_ONE << slice)) != 0;
 }
 
 inline bool RawBefore(TimeSlice slice) {
     if (slice == 0)
         return false;
     uint64_t mask = (TIME_BIT_ONE << slice) - 1;
-    return (gCurrentRegionTime & mask) != 0;
+    return (LS_REGION_TIME & mask) != 0;
 }
 
 inline bool RawAfter(TimeSlice slice) {
     uint64_t mask = ~((TIME_BIT_ONE << slice) - 1) & TIME_ALL_SLICES;
-    return (gCurrentRegionTime & mask) != 0;
+    return (LS_REGION_TIME & mask) != 0;
 }
 
 inline bool RawBetween(TimeSlice start, TimeSlice end) {
     uint64_t mask = ((TIME_BIT_ONE << end) - 1) & ~((TIME_BIT_ONE << start) - 1);
-    return (gCurrentRegionTime & mask) != 0;
+    return (LS_REGION_TIME & mask) != 0;
 }
 
 // Generate bitmask for a half-day period's time slices
@@ -614,9 +670,14 @@ inline bool ClockFilter() {
     (BETWEEN(TIME_NIGHT1_AM_12_00, TIME_DAY2_AM_06_00) || BETWEEN(TIME_NIGHT2_AM_12_00, TIME_DAY3_AM_06_00) || \
      AFTER(TIME_NIGHT3_AM_12_00))
 
+inline bool LS_HaveEnemySoul(ActorId enemyId) {
+    s32 soulFlag = GetEnemySoulRandoInf(enemyId);
+    return soulFlag < 0 || LS_Flags_GetRandoInf(soulFlag);
+}
+
 inline bool CanKillEnemy(ActorId EnemyId) {
     // If enemy souls are shuffled, and the relevant soul is not obtained, we cannot kill that enemy.
-    if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_ENEMY_SOULS] && !HaveEnemySoul(EnemyId)) {
+    if (LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_ENEMY_SOULS] && !LS_HaveEnemySoul(EnemyId)) {
         return false;
     }
 
@@ -624,24 +685,24 @@ inline bool CanKillEnemy(ActorId EnemyId) {
         case ACTOR_BOSS_01: // Odolwa
             return (CAN_USE_SWORD || CAN_BE_GORON || CAN_BE_ZORA || CAN_USE_EXPLOSIVE || CAN_USE_MAGIC_ARROW(FIRE) ||
                     CAN_USE_MAGIC_ARROW(LIGHT)) &&
-                   (Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_ODOLWA) ||
-                    RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
+                   (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_ODOLWA) ||
+                    LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
         case ACTOR_BOSS_02: // Twinmold
             return (HAS_ITEM(ITEM_BOW) || (HAS_ITEM(ITEM_MASK_GIANT) && HAS_MAGIC && CAN_USE_HUMAN_SWORD)) &&
-                   (Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_TWINMOLD) ||
-                    RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
+                   (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_TWINMOLD) ||
+                    LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
         case ACTOR_BOSS_03: // Gyorg
             return ((CAN_BE_DEITY && HAS_MAGIC) || (CAN_BE_ZORA && HAS_MAGIC)) &&
-                   (Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_GYORG) ||
-                    RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
+                   (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_GYORG) ||
+                    LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
         case ACTOR_BOSS_04: // Wart
             return (HAS_ITEM(ITEM_BOW) || HAS_ITEM(ITEM_HOOKSHOT) || CAN_BE_ZORA);
         case ACTOR_BOSS_HAKUGIN: // Goht
-            return (CAN_USE_MAGIC_ARROW(FIRE)) && (Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_GOHT) ||
-                                                   RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
+            return (CAN_USE_MAGIC_ARROW(FIRE)) && (LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_GOHT) ||
+                                                   LS_RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_SOULS] == RO_GENERIC_NO);
         case ACTOR_EN_KNIGHT: // Igos du Ikana/IdI Lackey
             return (CAN_USE_MAGIC_ARROW(FIRE) &&
-                    (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) >= EQUIP_VALUE_SHIELD_MIRROR) &&
+                    (LS_GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) >= EQUIP_VALUE_SHIELD_MIRROR) &&
                     (CAN_USE_SWORD || CAN_BE_DEKU || CAN_BE_GORON || CAN_BE_ZORA));
         case ACTOR_EN_KAIZOKU: // Fighter Pirate
             return (CAN_USE_SWORD || CAN_BE_ZORA);
