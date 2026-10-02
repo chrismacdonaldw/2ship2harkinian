@@ -2,7 +2,9 @@
 #include "Rando/ActorBehavior/Souls.h"
 #include "Rando/MiscBehavior/MiscBehavior.h"
 #include "Rando/MiscBehavior/ClockShuffle.h"
+#ifdef DIPTYCH_GAME_MODULE
 #include "2s2h/DiptychGoals.h"
+#endif
 
 extern "C" {
 #include "variables.h"
