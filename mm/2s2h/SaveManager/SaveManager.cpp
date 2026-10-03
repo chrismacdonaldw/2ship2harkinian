@@ -1,6 +1,6 @@
 #include "SaveManager.h"
+#include "SaveFile.h"
 #ifdef DIPTYCH_GAME_MODULE
-#include "../../../../host/native_save.h"
 #include "2s2h/DiptychModule_Goals.h"
 static uint64_t sDiptychFlashWrites[14]{};
 uint64_t SaveManager_FlashWriteSerial(int operation) {
@@ -219,8 +219,8 @@ bool SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
 
     try {
         std::filesystem::create_directories(savesFolderPath);
-#ifdef DIPTYCH_GAME_MODULE
-        return native_save::Publish(filePath, j.dump(4) + "\n");
+#if !defined(__SWITCH__) && !defined(__WIIU__)
+        return MmSaveFile::Publish(filePath, j.dump(4) + "\n");
 #else
         std::ofstream o(filePath);
         o << std::setw(4) << j << std::endl;
