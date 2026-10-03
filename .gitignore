@@ -74,3 +74,8 @@ _packages/
 
 build/
 .cache
+
+# Local assistant guidance, skill links and installed hook configuration.
+/AGENTS.md
+/.agents/
+/.codex/hooks.json
