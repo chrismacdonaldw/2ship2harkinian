@@ -136,7 +136,10 @@ endif()
 # VCPKG dependencies for Windows
 ################################################################################
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-include(CMake/automate-vcpkg.cmake)
+option(SKIP_AUTOMATE_VCPKG "Use caller-provided dependencies instead of automatic vcpkg setup" OFF)
+if(NOT SKIP_AUTOMATE_VCPKG)
+    include(CMake/automate-vcpkg.cmake)
+endif()
 
 if ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Win32")
 	set(VCPKG_TRIPLET x86-windows-static)
@@ -155,8 +158,10 @@ if(DIPTYCH_SHARED_ENGINE)
 	add_compile_definitions(LUS_DYNAMIC_CRT)
 endif()
 
-vcpkg_bootstrap()
-vcpkg_install_packages(zlib bzip2 libzip libpng sdl2 sdl2-net glew glfw3 nlohmann-json tinyxml2 spdlog libogg libvorbis opus opusfile)
+if(NOT SKIP_AUTOMATE_VCPKG)
+    vcpkg_bootstrap()
+    vcpkg_install_packages(zlib bzip2 libzip libpng sdl2 sdl2-net glew glfw3 nlohmann-json tinyxml2 spdlog libogg libvorbis opus opusfile)
+endif()
 endif()
 
 ################################################################################
