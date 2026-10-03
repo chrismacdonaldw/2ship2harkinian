@@ -1,5 +1,6 @@
 #include "Spoiler.h"
 #include "Rando/Rando.h"
+#include "Rando/Compatibility.h"
 
 namespace Rando {
 
@@ -9,6 +10,9 @@ nlohmann::json GenerateFromSaveContext() {
     nlohmann::json spoiler;
     spoiler["type"] = "2S2H_RANDO_SPOILER";
     spoiler["commitHash"] = gSaveContext.save.shipSaveInfo.commitHash;
+#ifdef DIPTYCH_GAME_MODULE
+    spoiler[Compatibility::kField] = Compatibility::kSchema;
+#endif
     spoiler["finalSeed"] = gSaveContext.save.shipSaveInfo.rando.finalSeed;
 
     spoiler["options"] = nlohmann::json::object();
