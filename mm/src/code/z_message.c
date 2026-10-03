@@ -6254,6 +6254,8 @@ void Message_Update(PlayState* play) {
 
         case MSGMODE_OWL_SAVE_0:
             play->state.unk_A3 = 1;
+            play->sramCtx.owlSaveBeforeWrite = gSaveContext.save.isOwlSave;
+            play->sramCtx.checksumBeforeWrite = gSaveContext.save.saveInfo.checksum;
             gSaveContext.save.isOwlSave = true;
             Play_SaveCycleSceneFlags(play);
             func_8014546C(&play->sramCtx);
@@ -6271,6 +6273,13 @@ void Message_Update(PlayState* play) {
             if (gSaveContext.fileNum != 0xFF) {
                 play->state.unk_A3 = 1;
                 if (play->sramCtx.status == 0) {
+                    if (play->sramCtx.writeResult != 0) {
+                        gSaveContext.save.isOwlSave = play->sramCtx.owlSaveBeforeWrite;
+                        gSaveContext.save.saveInfo.checksum = play->sramCtx.checksumBeforeWrite;
+                        play->state.unk_A3 = 0;
+                        Message_CloseTextbox(play);
+                        break;
+                    }
                     play->msgCtx.ocarinaMode = OCARINA_MODE_APPLY_SOT;
                     msgCtx->msgMode = MSGMODE_OWL_SAVE_2;
                 }

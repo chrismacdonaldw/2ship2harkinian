@@ -223,7 +223,7 @@ void SysFlashrom_ThreadEntry(void* arg) {
 
 void SysFlashrom_WriteDataAsync(u8* addr, u32 pageNum, u32 pageCount) {
     // #region 2S2H [Port] Redirect to our own write function
-    SaveManager_SysFlashrom_WriteData(addr, pageNum, pageCount);
+    sFlashromRequest.response = SaveManager_SysFlashrom_WriteData(addr, pageNum, pageCount);
     return;
     // #endregion
 
@@ -258,7 +258,7 @@ s32 SysFlashrom_IsBusy(void) {
 
 s32 SysFlashrom_AwaitResult(void) {
     // #region 2S2H [Port] Currently all of our save writes/reads are synchronous, so we don't need to wait for anything
-    return 0;
+    return sFlashromRequest.response;
     // #endregion
 
     if (!SysFlashrom_IsInit()) {
