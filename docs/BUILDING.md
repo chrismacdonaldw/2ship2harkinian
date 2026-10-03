@@ -43,6 +43,20 @@ cd 2ship2harkinian
 # Now you can run the executable in .\build\x64 or run in Visual Studio
 ```
 
+### Using a provisioned Windows dependency SDK
+
+Automatic vcpkg setup remains the default. To use an already provisioned SDK without automatic vcpkg cloning, updating or package installation during configure, set `SKIP_AUTOMATE_VCPKG=ON` and supply its toolchain. The SDK must contain the packages listed in the root CMake file for `x64-windows-static`; pin the SDK revision for reproducible builds.
+
+For a standalone executable, initialize this fork's declared submodules and use a fresh cache with embedding disabled:
+
+```powershell
+git submodule update --init
+cmake -S . -B build/standalone -G "Visual Studio 17 2022" -T v143 -A x64 -DSKIP_AUTOMATE_VCPKG=ON -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static -DDIPTYCH_ROOT= -DDIPTYCH_GAME_MODULE=OFF -DDIPTYCH_SHARED_ENGINE=OFF
+cmake --build build/standalone --config Release --target 2ship
+```
+
+No Diptych checkout is needed. Generate2ShipOtr is the separate native resource-pack target; building the executable does not require extracting a user's ROM. A nonempty `DIPTYCH_ROOT` opts into combined sources even when the module option is OFF, so keep standalone and integrated caches separate. Native FetchContent dependencies may still be fetched during configure. Integrated builds must provision their selected shared-engine triplet independently.
+
 ### Developing 2S2H
 With the cmake build system you have two options for working on the project:
 
