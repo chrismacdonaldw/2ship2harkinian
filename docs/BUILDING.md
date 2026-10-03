@@ -323,3 +323,11 @@ You'll have to enable the ability to run unsigned scripts through PowerShell. To
 
 ### Runner on UNIX systems
 If you're on macOS or Linux take a look at `macports-deps.txt` or `apt-deps.txt` to see the dependencies expected to be on your machine.
+
+## Reviewed upstream updates
+
+After the setup is merged into this fork's default branch, the upstream-sync workflow checks the canonical upstream daily and can be started manually. It proposes a normal merge into `develop`, preserving this fork's changes. It leaves one frozen proposal open for review; it does not merge, force-push, resolve conflicts or create releases. An update that changes workflow/automation files is held for manual review.
+
+Each proposal dispatches the Native check workflow at the candidate branch with its exact commit as `expected_sha`. The validator has read-only repository permissions and no supplied secrets. It builds the standalone Windows executable with a pinned vcpkg SDK and runs the native save-publication regression, using dependency/build caches. It does not extract ROMs or package game resources. The inherited packaging/artifact jobs do not run for sync proposal branches.
+
+Review the candidate diff and the successful Native check run for that exact commit before merging. A stale, failed or missing check is not validation; changing the proposal branch requires a new exact-commit check. A blocked update should be handled on a separate reviewed branch rather than rewriting the frozen proposal.
