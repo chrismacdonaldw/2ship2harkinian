@@ -149,7 +149,9 @@ class ProposalTests(unittest.TestCase):
             if "rev-parse" in args:
                 return CANDIDATE if args[-1] == "FETCH_HEAD" else args[-1].split(":")[0]
             return ""
-        with patch.object(sync, "api", return_value={"object": {"sha": BASE}}), patch.object(sync, "run", run), patch.object(sync, "dispatch") as dispatch:
+        def api(path):
+            return {"object": {"sha": CANDIDATE if "sync/upstream-" in path else BASE}}
+        with patch.object(sync, "api", api), patch.object(sync, "run", run), patch.object(sync, "dispatch") as dispatch:
             with self.assertRaisesRegex(ValueError, "maintained default"):
                 sync.resume_validation("chrismacdonaldw/Shipwright", proposal)
             dispatch.assert_not_called()
