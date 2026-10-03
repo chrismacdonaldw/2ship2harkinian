@@ -58,6 +58,11 @@ def resume_validation(repo, proposal):
         raise ValueError("Proposal no longer matches its frozen upstream merge")
     if unsafe_paths(run("git", "diff", "--name-only", "-z", parents[1], candidate).split("\0")):
         raise ValueError("Proposal automation changed; manual review required")
+    # First-parent metadata is not itself a trust anchor after a user branch edit.
+    trusted = sha(api(f"repos/{repo}/git/ref/heads/{BASE}")["object"]["sha"])
+    run("git", "fetch", "--no-tags", "origin", BASE)
+    if run("git", "rev-parse", trusted + ":.github") != run("git", "rev-parse", candidate + ":.github"):
+        raise ValueError("Proposal automation differs from the maintained default; manual review required")
     runs = api(f"repos/{repo}/actions/workflows/native-check.yml/runs?head_sha={candidate}&per_page=1")
     if runs["total_count"] == 0:
         dispatch(repo, branch, candidate)

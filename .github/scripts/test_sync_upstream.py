@@ -48,6 +48,8 @@ class ProposalTests(unittest.TestCase):
                 return " ".join((CANDIDATE, BASE, TIP))
             if args == ("git", "rev-parse", "HEAD"):
                 return CANDIDATE
+            if "rev-parse" in args and args[-1].endswith(":.github"):
+                return "4" * 40
             if "diff" in args:
                 return ".github/workflows/évil.yml\0" if unsafe else "soh/source.cpp\0"
             return ""
@@ -137,6 +139,20 @@ class ProposalTests(unittest.TestCase):
         with patch.object(sync, "api", api), patch.object(sync, "run", run), patch.object(sync, "dispatch") as dispatch, patch.object(sync, "note"):
             sync.resume_validation("chrismacdonaldw/Shipwright", proposal)
             dispatch.assert_called_once_with("chrismacdonaldw/Shipwright", sync.PREFIX + TIP, CANDIDATE)
+
+    def test_rewritten_validator_cannot_be_dispatched(self):
+        proposal = {"head": {"ref": sync.PREFIX + TIP, "sha": CANDIDATE,
+                              "repo": {"full_name": "chrismacdonaldw/Shipwright"}}}
+        def run(*args):
+            if "rev-list" in args:
+                return " ".join((CANDIDATE, BASE, TIP))
+            if "rev-parse" in args:
+                return CANDIDATE if args[-1] == "FETCH_HEAD" else args[-1].split(":")[0]
+            return ""
+        with patch.object(sync, "api", return_value={"object": {"sha": BASE}}), patch.object(sync, "run", run), patch.object(sync, "dispatch") as dispatch:
+            with self.assertRaisesRegex(ValueError, "maintained default"):
+                sync.resume_validation("chrismacdonaldw/Shipwright", proposal)
+            dispatch.assert_not_called()
 
 
 if __name__ == "__main__":
