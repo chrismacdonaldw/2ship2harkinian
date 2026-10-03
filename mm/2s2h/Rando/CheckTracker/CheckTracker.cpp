@@ -1,7 +1,4 @@
 #ifdef DIPTYCH_GAME_MODULE
-void Diptych_OnCheckSkipped(int check);
-#endif
-#ifdef DIPTYCH_GAME_MODULE
 #include "DiptychTracker.h"
 #include "test_folder.h"
 #endif
@@ -462,10 +459,7 @@ void CheckTrackerDrawNonLogicalList() {
                                                                           ? IM_COL32(255, 255, 0, 128)
                                                                           : IM_COL32(255, 255, 255, 0));
                     if (ImGui::IsItemClicked()) {
-                        randoSaveCheck.skipped = !randoSaveCheck.skipped;
-#ifdef DIPTYCH_GAME_MODULE
-                        Diptych_OnCheckSkipped(randoCheckId);
-#endif
+                        Rando::SetCheckSkipped(randoCheckId, !randoSaveCheck.skipped);
                     }
                     ImGui::TableNextColumn();
                 }

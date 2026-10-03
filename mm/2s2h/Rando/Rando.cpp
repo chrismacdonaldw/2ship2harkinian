@@ -31,6 +31,15 @@ void Rando::Init() {
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSaveLoad>(OnSaveLoadHandler);
 }
 
+bool Rando::SetCheckSkipped(RandoCheckId check, bool skipped) {
+    if (!IS_RANDO || check <= RC_UNKNOWN || check >= RC_MAX || !StaticData::Checks.contains(check)) return false;
+    auto& state = RANDO_SAVE_CHECKS[check];
+    if (state.skipped == skipped) return false;
+    state.skipped = skipped;
+    GameInteractor::Instance->ExecuteHooks<GameInteractor::OnRandoSetIsSkipped>(check, skipped);
+    return true;
+}
+
 RandoCheckId Rando::FindItemPlacement(RandoItemId randoItemId) {
     for (auto& [randoCheckId, check] : Rando::StaticData::Checks) {
         if (RANDO_SAVE_CHECKS[randoCheckId].randoItemId == randoItemId) {

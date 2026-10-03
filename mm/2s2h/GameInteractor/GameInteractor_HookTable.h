@@ -61,3 +61,4 @@ DEFINE_HOOK(OnSeqPlayerInit, (s32 playerIdx, s32 seqId));
 
 // Rando
 DEFINE_HOOK(OnRandoSeedGeneration, ());
+DEFINE_HOOK(OnRandoSetIsSkipped, (RandoCheckId check, bool skipped));

@@ -13,6 +13,8 @@
 namespace Rando {
 
 void Init();
+// Returns whether skipped changed; invalid checks, non-rando saves and no-ops emit no event.
+bool SetCheckSkipped(RandoCheckId check, bool skipped);
 void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, Actor* actor = nullptr);
 void GiveItem(RandoItemId randoItemId);
 void RemoveItem(RandoItemId randoItemId);
