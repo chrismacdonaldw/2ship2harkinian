@@ -1,3 +1,8 @@
+#ifdef DIPTYCH_GAME_MODULE
+#include "DiptychModule.h"
+#include "DiptychTracker.h"
+#include "diptych_rando_page.h"
+#endif
 #include "Rando/Rando.h"
 #include "Rando/Spoiler/Spoiler.h"
 #include "2s2h/BenGui/UIWidgets.hpp"
@@ -527,6 +532,7 @@ static const char* SEED_HEALTH_TOOLTIP =
     "- Restore checks on the Check Exclusions page";
 
 static void DrawSeedHealthStrip() {
+#ifndef DIPTYCH_GAME_MODULE
     int importantItems = itemsInPool - junkInPool;
     float usage = 0.0f;
     if (checksInPool > 0) {
@@ -576,15 +582,16 @@ static void DrawSeedHealthStrip() {
                                               IM_COL32(255, 255, 255, 160));
     ImGui::EndGroup();
     Tooltip(SEED_HEALTH_TOOLTIP);
+#endif
 }
 
 static void DrawGeneralTab() {
     ImGui::BeginChild("randoSettings");
+#ifndef DIPTYCH_GAME_MODULE
     ImGui::PushStyleColor(ImGuiCol_Text, DIM_TEXT_COLOR);
     ImGui::TextWrapped(
         "Explore the menus for various enhancements and time savers; most are not enabled by default in Rando.");
     ImGui::PopStyleColor();
-
     ImGui::SeparatorText("Seed Generation");
     UIWidgets::CVarCheckbox("Enable Rando (Randomizes new files upon creation)", "gRando.Enabled");
 
@@ -612,11 +619,17 @@ static void DrawGeneralTab() {
                                 CheckboxOptions().DefaultValue(true));
     }
 
+#endif
+
+#ifndef DIPTYCH_GAME_MODULE
     ImGui::SeparatorText("Seed Health");
     DrawSeedHealthStrip();
+#endif
 
     ImGui::SeparatorText("Live Options");
+#ifndef DIPTYCH_GAME_MODULE
     ImGui::TextWrapped("These options can be changed on the fly, and are not tied to the seed generation.");
+#endif
     UIWidgets::CVarCheckbox(
         "Container Style Matches Contents", "gRando.CSMC",
         UIWidgets::CheckboxOptions().Tooltip("This will make the contents of a container match the container itself. "
@@ -806,10 +819,12 @@ static void DrawCheckPoolTab() {
 
     UIWidgets::BeginCard("checkPoolScenery");
     ImGui::SeparatorText("Scenery Drops");
+#ifndef DIPTYCH_GAME_MODULE
     ImGui::PushStyleColor(ImGuiCol_Text, DIM_TEXT_COLOR);
     ImGui::TextWrapped("Hundreds of junk-heavy checks per group. Enable these to make room for a bigger item pool, "
                        "or for full \"allsanity\" seeds.");
     ImGui::PopStyleColor();
+#endif
     if (Button("All On", ButtonOptions({ { .tooltip = "Enable every scenery drop group" } })
                              .Size(UIWidgets::Sizes::Inline)
                              .Color(Colors::Green))) {
@@ -1775,9 +1790,23 @@ void Rando::RegisterMenu() {
 
     mBenMenu->AddSidebarEntry("Rando", "Check Tracker", 1);
     path.sidebarName = "Check Tracker";
+#ifdef DIPTYCH_GAME_MODULE
+    mBenMenu->AddWidget(path, "Check Tracker", WIDGET_CUSTOM)
+        .CustomFunction([](WidgetInfo&) { DiptychTracker::DrawToggle(); });
+#else
+    mBenMenu->AddWidget(path, "Show Check Tracker", WIDGET_CVAR_CHECKBOX)
+        .CVar("gWindows.CheckTracker");
+#endif
     mBenMenu->AddWidget(path, "Popout Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.CheckTrackerSettings")
         .WindowName("Check Tracker Settings");
+#ifdef DIPTYCH_GAME_MODULE
+    // Diptych's init callback can run before this native header is registered.
+    mBenMenu->SetMenuEntryLabel("Rando", "Randomizer");
+    mBenMenu->PlaceMenuEntryAfter("Rando", "Settings");
+    mBenMenu->MoveRuntimeSidebar("Rando", "Item Tracker", "Settings");
+    mBenMenu->MoveRuntimeSidebar("Rando", "Check Tracker", "Settings");
+#endif
 }
 
 static RegisterMenuInitFunc initFunc(Rando::RegisterMenu);

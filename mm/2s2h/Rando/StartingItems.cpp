@@ -12,7 +12,8 @@
 
 namespace Rando {
 
-std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo) {
+std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo,
+                                                  s32 (*seededRandom)(u64 seed, s32 min, s32 max)) {
     std::vector<RandoItemId> startingItems;
 
     if (randoSaveInfo.randoSaveOptions[RO_STARTING_MAPS_AND_COMPASSES]) {
@@ -93,8 +94,12 @@ std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo) 
         }
         if (!hasTimeItem) {
             if (randoSaveInfo.randoSaveOptions[RO_CLOCK_SHUFFLE_PROGRESSIVE] == RO_CLOCK_SHUFFLE_RANDOM) {
-                Ship_Random_Seed(randoSaveInfo.finalSeed);
-                startingItems.push_back((RandoItemId)(RI_TIME_DAY_1 + Ship_Random(0, 6)));
+                if (seededRandom != nullptr) {
+                    startingItems.push_back((RandoItemId)(RI_TIME_DAY_1 + seededRandom(randoSaveInfo.finalSeed, 0, 6)));
+                } else {
+                    Ship_Random_Seed(randoSaveInfo.finalSeed);
+                    startingItems.push_back((RandoItemId)(RI_TIME_DAY_1 + Ship_Random(0, 6)));
+                }
             } else {
                 startingItems.push_back(RI_TIME_PROGRESSIVE);
             }

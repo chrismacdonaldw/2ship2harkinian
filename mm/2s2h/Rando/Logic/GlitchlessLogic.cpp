@@ -18,8 +18,10 @@ namespace Logic {
 void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
     uint64_t tick = GetUnixTimestamp();
 
-    SaveContext copiedSaveContext;
-    memcpy(&copiedSaveContext, &gSaveContext, sizeof(SaveContext));
+    State state = FromSave(gSaveContext);
+    std::vector<RandoSaveCheck> plan(RANDO_SAVE_CHECKS, RANDO_SAVE_CHECKS + RC_MAX);
+    state.checks = plan.data();
+    ScopedState scope(state);
 
     std::set<RandoRegionId> regionsInLogic = { RR_MAX };
     std::set<RandoCheckId> checksInLogic;
@@ -54,7 +56,6 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
             SPDLOG_ERROR("Item still in pool: {}", Rando::StaticData::Items[randoItemId].spoilerName);
         }
 
-        memcpy(&gSaveContext, &copiedSaveContext, sizeof(SaveContext));
         throw std::runtime_error(message);
     };
 
@@ -86,7 +87,7 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
             // Apply any new events
             for (auto& randoEvent : randoRegion.events) {
                 if (!eventsInLogic.contains(&randoEvent) && randoEvent.second()) {
-                    RANDO_EVENTS[randoEvent.first]++;
+                    state.events[randoEvent.first]++;
                     eventsInLogic.insert(&randoEvent);
                     eventsInLogicChanged = true;
                 }
@@ -101,7 +102,7 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
 
                     checksInLogic.insert(randoCheckId);
 
-                    RandoItemId randoItemId = RANDO_SAVE_CHECKS[randoCheckId].randoItemId;
+                    RandoItemId randoItemId = plan[randoCheckId].randoItemId;
 
                     auto it = std::find(checkPool.begin(), checkPool.end(), randoCheckId);
                     bool inPool = it != checkPool.end();
@@ -114,8 +115,8 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
                                         std::string(Rando::StaticData::Checks[randoCheckId].name));
                         }
 
-                        randoItemId = RANDO_SAVE_CHECKS[randoCheckId].randoItemId = itemPool[pickIndex];
-                        RANDO_SAVE_CHECKS[randoCheckId].shuffled = true;
+                        randoItemId = plan[randoCheckId].randoItemId = itemPool[pickIndex];
+                        plan[randoCheckId].shuffled = true;
 
                         itemPool.erase(itemPool.begin() + pickIndex);
 
@@ -131,7 +132,7 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
                         }
                     }
 
-                    GiveItem(ConvertItem(randoItemId));
+                    Apply(state, Resolve(state, randoItemId));
 
                     // Update time states for all regions when time items are obtained
                     if (randoItemId >= RI_TIME_DAY_1 && randoItemId <= RI_TIME_PROGRESSIVE) {
@@ -210,23 +211,23 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
             if (nonJunkItemsThatWeHaveNotTried.empty()) {
                 SPDLOG_TRACE("Already tried all non-junk items, leaving the last non-junk item in place: {}: {}",
                              Rando::StaticData::Checks[checkWithJunk].name,
-                             Rando::StaticData::Items[RANDO_SAVE_CHECKS[checkWithJunk].randoItemId].spoilerName);
+                             Rando::StaticData::Items[plan[checkWithJunk].randoItemId].spoilerName);
                 checkWithJunk = RC_UNKNOWN;
                 nonJunkItemsThatWeHaveTried.clear();
                 continue;
             }
 
             // Remove item and place it back in the pool
-            RandoItemId oldRandoItemId = RANDO_SAVE_CHECKS[checkWithJunk].randoItemId;
+            RandoItemId oldRandoItemId = plan[checkWithJunk].randoItemId;
             auto& [newRandoItemId, indexInPool] = nonJunkItemsThatWeHaveNotTried[0];
 
-            RANDO_SAVE_CHECKS[checkWithJunk].randoItemId = newRandoItemId;
+            plan[checkWithJunk].randoItemId = newRandoItemId;
 
             SPDLOG_DEBUG("Item Replaced Junk: {}:{}", Rando::StaticData::Checks[checkWithJunk].name,
                          Rando::StaticData::Items[newRandoItemId].spoilerName);
 
-            RemoveItem(oldRandoItemId);
-            GiveItem(ConvertItem(newRandoItemId));
+            Remove(state, oldRandoItemId);
+            Apply(state, Resolve(state, newRandoItemId));
 
             itemPool.erase(itemPool.begin() + indexInPool);
             itemPool.push_back(oldRandoItemId);
@@ -239,7 +240,7 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
             if (checkWithJunk != RC_UNKNOWN) {
                 SPDLOG_DEBUG("Successfully Replaced junk item with: {}:{}",
                              Rando::StaticData::Checks[checkWithJunk].name,
-                             Rando::StaticData::Items[RANDO_SAVE_CHECKS[checkWithJunk].randoItemId].spoilerName);
+                             Rando::StaticData::Items[plan[checkWithJunk].randoItemId].spoilerName);
             }
             checkWithJunk = RC_UNKNOWN;
             nonJunkItemsThatWeHaveTried.clear();
@@ -255,13 +256,9 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
     }
 
     for (auto& randoCheckId : checksInLogic) {
-        copiedSaveContext.save.shipSaveInfo.rando.randoSaveChecks[randoCheckId].randoItemId =
-            RANDO_SAVE_CHECKS[randoCheckId].randoItemId;
-        copiedSaveContext.save.shipSaveInfo.rando.randoSaveChecks[randoCheckId].shuffled =
-            RANDO_SAVE_CHECKS[randoCheckId].shuffled;
+        RANDO_SAVE_CHECKS[randoCheckId].randoItemId = plan[randoCheckId].randoItemId;
+        RANDO_SAVE_CHECKS[randoCheckId].shuffled = plan[randoCheckId].shuffled;
     }
-
-    memcpy(&gSaveContext, &copiedSaveContext, sizeof(SaveContext));
 
     SPDLOG_INFO("Successfully placed all items with Glitchless logic");
 }

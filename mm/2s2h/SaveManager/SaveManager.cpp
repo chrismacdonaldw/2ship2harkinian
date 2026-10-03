@@ -1,7 +1,16 @@
 #include "SaveManager.h"
+#include "SaveFile.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychModule_Goals.h"
+static uint64_t sDiptychFlashWrites[14]{};
+uint64_t SaveManager_FlashWriteSerial(int operation) {
+    return operation >= 0 && operation < 14 ? sDiptychFlashWrites[operation] : 0;
+}
+#endif
 
 #include <fstream>
 #include <filesystem>
+#include <memory>
 #include <nlohmann/json.hpp>
 
 #include "BenJsonConversions.hpp"
@@ -66,63 +75,174 @@ const std::unordered_map<uint32_t, std::function<void(nlohmann::json&)>> migrati
     { 7, SaveManager_Migration_8 },
 };
 
-int SaveManager_MigrateSave(nlohmann::json& j) {
+namespace {
+using ReadStatus = SaveManagerReadStatus;
+
+ReadStatus MigrateSave(nlohmann::json& j, int& version, std::string& error) {
     try {
-        int version = j.value("version", 0);
-
+        version = j.value("version", 0);
         if (version > (int)CURRENT_SAVE_VERSION) {
-            SPDLOG_ERROR("Save version is greater than current version");
-            return -1;
+            error = "Save version is greater than current version";
+            return ReadStatus::FutureVersion;
         }
-
         if (version >= 4 && !j.contains("newCycleSave") && !j.contains("owlSave")) {
-            SPDLOG_ERROR("Save file is missing newCycleSave and owlSave");
-            return -1;
+            error = "Save file is missing newCycleSave and owlSave";
+            return ReadStatus::MigrationError;
         }
-
-        while (version < (int)CURRENT_SAVE_VERSION) {
-            if (migrations.contains(version)) {
-                auto migration = migrations.at(version);
-                if (version < 4) {
+        int migratedVersion = version;
+        while (migratedVersion < (int)CURRENT_SAVE_VERSION) {
+            if (migrations.contains(migratedVersion)) {
+                auto migration = migrations.at(migratedVersion);
+                if (migratedVersion < 4) {
                     migration(j); // Pre-1.0.0 Migrations, deprecated
                 } else {
-                    // In the case of copying files, the owl save is copied first, so the new cycle may not exist yet.
-                    if (j.contains("newCycleSave")) {
-                        migration(j["newCycleSave"]);
-                    }
-                    // Only migrate the owl save if it exists
-                    if (j.contains("owlSave")) {
-                        migration(j["owlSave"]);
-                    }
+                    // Copying can temporarily produce a file with only an owl save.
+                    if (j.contains("newCycleSave")) migration(j["newCycleSave"]);
+                    if (j.contains("owlSave")) migration(j["owlSave"]);
                 }
             }
-            version = j["version"] = version + 1;
+            migratedVersion = j["version"] = migratedVersion + 1;
         }
-        return 0;
+        return ReadStatus::Ok;
     } catch (std::exception& e) {
-        SPDLOG_ERROR("Failed to migrate save file: {}", e.what());
-        return -1;
+        error = std::string("Failed to migrate save file: ") + e.what();
     } catch (...) {
-        SPDLOG_ERROR("Failed to migrate save file");
-        return -1;
+        error = "Failed to migrate save file";
     }
+    return ReadStatus::MigrationError;
 }
 
-void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j) {
+struct SaveFileData {
+    ReadStatus status = ReadStatus::ReadError;
+    int version = 0;
+    std::string error;
+    nlohmann::json json;
+};
+
+SaveFileData ReadSaveJson(const std::filesystem::path& path) {
+    SaveFileData result;
+    std::error_code error;
+    const bool exists = std::filesystem::exists(path, error);
+    if (error) {
+        result.error = error.message();
+        return result;
+    }
+    if (!exists) {
+        result.status = ReadStatus::MissingFile;
+        return result;
+    }
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        result.error = "Save file could not be opened";
+        return result;
+    }
+    try {
+        input >> result.json;
+        result.status = ReadStatus::Ok;
+    } catch (const nlohmann::json::parse_error& e) {
+        result.status = input.bad() ? ReadStatus::ReadError : ReadStatus::MalformedJson;
+        result.error = e.what();
+    } catch (const std::exception& e) {
+        result.error = e.what();
+    } catch (...) {
+        result.error = "Failed to read save file";
+    }
+    return result;
+}
+
+SaveFileData ReadAndMigrateSave(const std::filesystem::path& path) {
+    auto result = ReadSaveJson(path);
+    if (result.status == ReadStatus::Ok) result.status = MigrateSave(result.json, result.version, result.error);
+    return result;
+}
+
+ReadStatus DecodeSaveHalf(const nlohmann::json& j, bool owl, std::unique_ptr<SaveContext>& decoded,
+                          std::string& error) {
+    const char* half = owl ? "owlSave" : "newCycleSave";
+    if (!j.contains(half)) return ReadStatus::MissingHalf;
+    try {
+        const auto& ship = j.at(half).at("save").at("shipSaveInfo");
+        // Check before conversion so the pure path never invokes its failure logger.
+        if (ship.value("saveType", 0) == SAVETYPE_RANDO) {
+            std::string origin;
+            if (!Rando::Compatibility::Save(ship, gGitCommitHash, origin)) {
+                error = "Randomizer save has an incompatible schema or creation build.";
+                return ReadStatus::IncompatibleRandomizer;
+            }
+        }
+        decoded = std::make_unique<SaveContext>();
+        if (owl) j.at(half).get_to(*decoded);
+        else j.at(half).at("save").get_to(decoded->save);
+        return ReadStatus::Ok;
+    } catch (const std::exception& e) {
+        error = e.what();
+    } catch (...) {
+        error = "Failed to convert save data";
+    }
+    return ReadStatus::ConversionError;
+}
+} // namespace
+
+int SaveManager_MigrateSave(nlohmann::json& j) {
+    int version = 0;
+    std::string error;
+    const auto status = MigrateSave(j, version, error);
+    if (status == ReadStatus::Ok) return 0;
+    SPDLOG_ERROR("{}", error);
+    return -1;
+}
+
+SaveManagerProbeResult SaveManager_ProbeSaveFile(const std::filesystem::path& path) {
+    const auto data = ReadAndMigrateSave(path);
+    SaveManagerProbeResult result;
+    result.status = data.status;
+    result.version = data.version;
+    result.error = data.error;
+    if (result.status != ReadStatus::Ok) return result;
+    result.hasNewCycle = data.json.contains("newCycleSave");
+    result.hasOwl = data.json.contains("owlSave");
+    for (bool owl : {false, true}) {
+        if (!(owl ? result.hasOwl : result.hasNewCycle)) continue;
+        std::unique_ptr<SaveContext> decoded;
+        result.status = DecodeSaveHalf(data.json, owl, decoded, result.error);
+        if (result.status != ReadStatus::Ok) {
+            result.error = std::string(owl ? "owlSave: " : "newCycleSave: ") + result.error;
+            return result;
+        }
+        (owl ? result.owl : result.newCycle) = decoded->save.shipSaveInfo;
+    }
+    return result;
+}
+
+bool SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j) {
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
-    if (!std::filesystem::exists(savesFolderPath)) {
-        std::filesystem::create_directory(savesFolderPath);
-    }
-
     try {
+        std::filesystem::create_directories(savesFolderPath);
+#if !defined(__SWITCH__) && !defined(__WIIU__)
+        return MmSaveFile::Publish(filePath, j.dump(4) + "\n");
+#else
         std::ofstream o(filePath);
         o << std::setw(4) << j << std::endl;
         o.close();
-    } catch (...) { SPDLOG_ERROR("Failed to write save file"); }
+        return !o.fail();
+#endif
+    } catch (...) {
+        SPDLOG_ERROR("Failed to write save file");
+        return false;
+    }
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+bool Diptych_BeforeDeleteSaveFile(const std::filesystem::path& fileName);
+#endif
+
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
+#ifdef DIPTYCH_GAME_MODULE
+    if (!Diptych_BeforeDeleteSaveFile(fileName)) {
+        return;
+    }
+#endif
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
     try {
@@ -133,21 +253,14 @@ void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
 }
 
 int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::json& j) {
-    const std::filesystem::path filePath = savesFolderPath / fileName;
-
-    if (!std::filesystem::exists(filePath)) {
-        return -1;
-    }
-
-    try {
-        std::ifstream i(filePath);
-        i >> j;
-        i.close();
-        return 0;
-    } catch (...) {
+    auto result = ReadSaveJson(savesFolderPath / fileName);
+    if (result.status == ReadStatus::MissingFile) return -1;
+    if (result.status != ReadStatus::Ok) {
         SPDLOG_ERROR("Failed to read save file");
         return -2;
     }
+    j = std::move(result.json);
+    return 0;
 }
 
 // Special "auto save" to prevent save scumming Saria's Song hint. This can be more generic if we
@@ -451,7 +564,16 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                 j["version"] = CURRENT_SAVE_VERSION;
                 j["type"] = "2S2H_SAVE";
 
+#ifdef DIPTYCH_GAME_MODULE
+                if (DiptychGoals::CycleSavePending()) {
+                    j.erase("owlSave");
+                }
+                if (SaveManager_WriteSaveFile(fileName, j)) {
+                    sDiptychFlashWrites[flashSave]++;
+                }
+#else
                 SaveManager_WriteSaveFile(fileName, j);
+#endif
             } else {
                 // If IS_VALID_FILE fails, we should delete the save file, even if there is an owl save in it, because
                 // they just deleted the new cycle save
@@ -490,7 +612,13 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                 j["version"] = CURRENT_SAVE_VERSION;
                 j["type"] = "2S2H_SAVE";
 
+#ifdef DIPTYCH_GAME_MODULE
+                if (SaveManager_WriteSaveFile(fileName, j)) {
+                    sDiptychFlashWrites[flashSave]++;
+                }
+#else
                 SaveManager_WriteSaveFile(fileName, j);
+#endif
             } else {
                 // If IS_VALID_FILE fails, and there is still a new cycle save present, we just want to only remove the
                 // owl save and write the new cycle save back
@@ -536,73 +664,33 @@ extern "C" s32 SaveManager_SysFlashrom_ReadData(void* saveBuffer, u32 pageNum, u
                      flashSave == FLASH_SAVE_FILE_2_OWL_SAVE || flashSave == FLASH_SAVE_FILE_2_OWL_SAVE_BACKUP ||
                      flashSave == FLASH_SAVE_FILE_3_OWL_SAVE || flashSave == FLASH_SAVE_FILE_3_OWL_SAVE_BACKUP;
 
-    nlohmann::json j;
-    int result = SaveManager_ReadSaveFile(fileName, j);
-    if (result == -2) {
+    auto data = ReadAndMigrateSave(savesFolderPath / fileName);
+    if (data.status == ReadStatus::MissingFile) return -1;
+    if (data.status == ReadStatus::ReadError || data.status == ReadStatus::MalformedJson) {
+        SPDLOG_ERROR("Failed to read save file");
         SaveManager_MoveInvalidSaveFile(
             fileName, "Something went wrong trying to read save file, the original file has been backed up.");
         return -1;
-    } else if (result != 0) {
-        return result;
     }
-
-    result = SaveManager_MigrateSave(j);
-
-    if (result != 0) {
+    if (data.status != ReadStatus::Ok) {
+        SPDLOG_ERROR("{}", data.error);
         SaveManager_MoveInvalidSaveFile(fileName, "Failed to migrate save file, the original file has been backed up.");
         return -1;
     }
 
-    if (isOwlSave) {
-        if (!j.contains("owlSave")) {
-            return -1;
-        }
-
-        try {
-            SaveContext saveContext = j["owlSave"];
-
-            // Recompute the checksum in case the save was edited externally or a migration changed it
-            // By doing this we sacrifice "real" checksum verification of the save,
-            saveContext.save.saveInfo.checksum = 0;
-            saveContext.save.saveInfo.checksum = Sram_CalcChecksum(&saveContext, offsetof(SaveContext, fileNum));
-
-            memcpy(saveBuffer, &saveContext, offsetof(SaveContext, fileNum));
-            return 0;
-        } catch (nlohmann::json::exception& je) {
-            SPDLOG_ERROR("Failed to parse owl save json: {}", je.what());
-            SaveManager_MoveInvalidSaveFile(fileName,
-                                            "Failed to parse save json, the original file has been backed up.");
-            return -1;
-        } catch (...) {
-            SPDLOG_ERROR("Failed to parse owl save json");
-            SaveManager_MoveInvalidSaveFile(fileName,
-                                            "Failed to parse save json, the original file has been backed up.");
-            return -1;
-        }
-    } else {
-        if (!j.contains("newCycleSave")) {
-            return -1;
-        }
-
-        try {
-            Save save = j["newCycleSave"]["save"];
-
-            // Recompute the checksum, see message above
-            save.saveInfo.checksum = 0;
-            save.saveInfo.checksum = Sram_CalcChecksum(&save, sizeof(Save));
-
-            memcpy(saveBuffer, &save, sizeof(Save));
-            return 0;
-        } catch (nlohmann::json::exception& je) {
-            SPDLOG_ERROR("Failed to parse new cycle save json: {}", je.what());
-            SaveManager_MoveInvalidSaveFile(fileName,
-                                            "Failed to parse save json, the original file has been backed up.");
-            return -1;
-        } catch (...) {
-            SPDLOG_ERROR("Failed to parse new cycle save json");
-            SaveManager_MoveInvalidSaveFile(fileName,
-                                            "Failed to parse save json, the original file has been backed up.");
-            return -1;
-        }
+    std::unique_ptr<SaveContext> decoded;
+    const auto status = DecodeSaveHalf(data.json, isOwlSave, decoded, data.error);
+    if (status == ReadStatus::MissingHalf) return -1;
+    if (status != ReadStatus::Ok) {
+        SPDLOG_ERROR("Failed to parse {} save json: {}", isOwlSave ? "owl" : "new cycle", data.error);
+        SaveManager_MoveInvalidSaveFile(fileName, "Failed to parse save json, the original file has been backed up.");
+        return -1;
     }
+    // The native loader recomputes checksums after migration; probing does not install any save buffers.
+    decoded->save.saveInfo.checksum = 0;
+    const size_t size = isOwlSave ? offsetof(SaveContext, fileNum) : sizeof(Save);
+    void* decodedData = isOwlSave ? static_cast<void*>(decoded.get()) : static_cast<void*>(&decoded->save);
+    decoded->save.saveInfo.checksum = Sram_CalcChecksum(decodedData, size);
+    memcpy(saveBuffer, decodedData, size);
+    return 0;
 }

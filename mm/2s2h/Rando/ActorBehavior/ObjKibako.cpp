@@ -1,4 +1,7 @@
 #include "ActorBehavior.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychModule_ForeignItems.h"
+#endif
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/CustomItem/CustomItem.h"
 #include "2s2h/ObjectExtension/ActorListIndex.h"
@@ -153,6 +156,9 @@ void ObjKibako_RandoDraw(Actor* actor, PlayState* play) {
     RandoCheckId randoCheckId = Rando::ActorBehavior::GetObjectRandoCheckId(actor);
     RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
     RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+#ifdef DIPTYCH_GAME_MODULE
+    randoItemType = Diptych_ForeignItemType(randoItemId, randoCheckId, randoItemType);
+#endif
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:
@@ -194,6 +200,9 @@ void ObjKibako2_RandoDraw(Actor* actor, PlayState* play) {
     RandoCheckId randoCheckId = Rando::ActorBehavior::GetObjectRandoCheckId(actor);
     RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
     RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+#ifdef DIPTYCH_GAME_MODULE
+    randoItemType = Diptych_ForeignItemType(randoItemId, randoCheckId, randoItemType);
+#endif
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:

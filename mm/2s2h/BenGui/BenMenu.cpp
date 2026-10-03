@@ -31,6 +31,9 @@ extern "C" {
 extern PlayState* gPlayState;
 extern SaveContext gSaveContext;
 }
+#ifdef DIPTYCH_GAME_MODULE
+extern "C" void gfx_shader_cache_clear();
+#endif
 extern std::unordered_map<s16, const char*> warpPointSceneList;
 extern void Warp();
 
@@ -659,12 +662,30 @@ void BenMenu::AddSettings() {
         .CVar(CVAR_ENABLE_MULTI_VIEWPORTS)
         .PreFunc(
             [](WidgetInfo& info) { info.isHidden = mBenMenu->disabledMap.at(DISABLE_FOR_NO_MULTI_VIEWPORT).active; })
+#ifdef DIPTYCH_GAME_MODULE
+        .Options(CheckboxOptions()
+                     .Tooltip("Allows multiple windows to be opened at once. Applies at the next launch.")
+                     .DefaultValue(true));
+    AddWidget(path, "Texture Filter", WIDGET_CVAR_COMBOBOX)
+        .CVar(CVAR_TEXTURE_FILTER)
+        .Callback([](WidgetInfo& info) {
+            auto window =
+                std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
+            if (window != nullptr) {
+                window->SetTextureFilter(
+                    (Fast::FilteringMode)CVarGetInteger(CVAR_TEXTURE_FILTER, Fast::FILTER_THREE_POINT));
+                gfx_shader_cache_clear();
+            }
+        })
+        .Options(ComboboxOptions().Tooltip("Sets the applied Texture Filtering.").ComboVec(&textureFilteringOptions));
+#else
         .Options(CheckboxOptions()
                      .Tooltip("Allows multiple windows to be opened at once. Requires a reload to take effect.")
                      .DefaultValue(true));
     AddWidget(path, "Texture Filter (Needs reload)", WIDGET_CVAR_COMBOBOX)
         .CVar(CVAR_TEXTURE_FILTER)
         .Options(ComboboxOptions().Tooltip("Sets the applied Texture Filtering.").ComboVec(&textureFilteringOptions));
+#endif
 
     path.column = SECTION_COLUMN_2;
     AddWidget(path, "Advanced Graphics Options", WIDGET_SEPARATOR_TEXT);

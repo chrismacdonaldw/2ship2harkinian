@@ -12,6 +12,13 @@ extern "C" {
 #include "overlays/actors/ovl_En_Gs/z_en_gs.h"
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+void Diptych_GossipStoneText(std::string* msg, Actor* stone, RandoCheckId check);
+#else
+static void Diptych_GossipStoneText(std::string*, Actor*, RandoCheckId) {
+}
+#endif
+
 #define FIRST_GS_MESSAGE 0x20D1
 #define SECOND_GS_MESSAGE 0x20C0
 #define MOON_GS_MASK_MESSAGE 0x20D4
@@ -214,6 +221,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
                                    Rando::StaticData::GetItemName(saveCheck.randoItemId, true, randoCheckId));
             CustomMessage::Replace(&entry.msg, "{{location}}",
                                    Rando::StaticData::GetLocationNameForHint(randoCheckId, showExact));
+            Diptych_GossipStoneText(&entry.msg, &GetGossipStone()->actor, randoCheckId);
 
             // Replace colors before line break calculation
             CustomMessage::ReplaceColorChars(&entry.msg);
@@ -285,14 +293,12 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
         }
 
         RandoItemId randoItemId = Rando::StaticData::GetItemIdFromVanillaItemId(ITEM_MASK_TRUTH + enGs->unk_195 - 1);
-        RandoCheckId randoCheckId = Rando::FindItemPlacement(randoItemId);
 
         auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
         entry.msg = "They say %g{{item}}%w is hidden %y{{location}}%w...";
 
         CustomMessage::Replace(&entry.msg, "{{item}}", Rando::StaticData::GetItemName(randoItemId));
-        CustomMessage::Replace(&entry.msg, "{{location}}",
-                               Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
+        CustomMessage::Replace(&entry.msg, "{{location}}", Rando::GetItemLocationNameForHint(randoItemId));
 
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;

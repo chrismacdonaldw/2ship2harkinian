@@ -123,7 +123,8 @@ static uint32_t SeedHashForSpoiler(const std::string& fileName) {
         // performance optimization: only parse the top level of the spoiler file, since that's all we need
         auto topLevelOnly = [](int depth, nlohmann::json::parse_event_t, nlohmann::json&) { return depth <= 1; };
 
-        std::ifstream stream(Ship::Context::GetPathRelativeToAppDirectory("randomizer/" + fileName, appShortName));
+        const std::string spoilerPath = HostedDataFolder("randomizer") + "/" + fileName;
+        std::ifstream stream(Ship::Context::GetPathRelativeToAppDirectory(spoilerPath, appShortName));
         nlohmann::json spoiler = nlohmann::json::parse(stream, topLevelOnly);
 
         if (spoiler.contains("finalSeed")) {

@@ -232,7 +232,7 @@ static RegisterShipInitFunc initFunc([]() {
     };
     Regions[RR_TERMINA_FIELD_SCRUB_GROTTO] = RandoRegion{ .name = "Termina Field Scrub", .sceneId = SCENE_KAKUSIANA,
         .checks = {
-            CHECK(RC_TERMINA_FIELD_GROTTO_SCRUB, CUR_UPG_VALUE(UPG_WALLET) >= 1 && RANDO_EVENTS[RE_TERMINA_FIELD_SCRUB_ENTERED_GROTTO]),
+            CHECK(RC_TERMINA_FIELD_GROTTO_SCRUB, LS_CUR_UPG_VALUE(UPG_WALLET) >= 1 && LS_RANDO_EVENTS[RE_TERMINA_FIELD_SCRUB_ENTERED_GROTTO]),
             CHECK(RC_TERMINA_FIELD_SCRUB_LARGE_CRATE, true),
             CHECK(RC_TERMINA_FIELD_SCRUB_POT,         true),
         },

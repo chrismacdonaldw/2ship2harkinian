@@ -58,6 +58,11 @@ void EnGirlA_RandoRestock(PlayState* play, EnGirlA* enGirlA) {
     }
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+int Diptych_ClaimCheck(RandoCheckId rc);
+void Diptych_GiveCheck(RandoCheckId rc, RandoItemId item);
+#endif
+
 s32 EnGirlA_RandoCanBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     if (gSaveContext.save.saveInfo.playerData.rupees < play->msgCtx.unk1206C) {
         return CANBUY_RESULT_NEED_RUPEES;
@@ -69,6 +74,11 @@ s32 EnGirlA_RandoCanBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     if (!CanBePurchased(randoSaveCheck, randoCheckId)) {
         return CANBUY_RESULT_CANNOT_GET_NOW;
     }
+#ifdef DIPTYCH_GAME_MODULE
+    if (Diptych_ClaimCheck(randoCheckId) == 1) {
+        return CANBUY_RESULT_CANNOT_GET_NOW;
+    }
+#endif
 
     return CANBUY_RESULT_SUCCESS_2;
 }
@@ -84,7 +94,11 @@ void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     } else if (randoItemId == RI_JUNK) {
         randoItemId = Rando::CurrentJunkItem(randoCheckId);
     }
+#ifdef DIPTYCH_GAME_MODULE
+    Diptych_GiveCheck(randoCheckId, randoItemId);
+#else
     Rando::GiveItem(randoItemId);
+#endif
 }
 
 void EnGirlA_RandoBuyFanfareFunc(PlayState* play, EnGirlA* enGirlA) {

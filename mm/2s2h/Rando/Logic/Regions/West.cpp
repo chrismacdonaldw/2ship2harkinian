@@ -13,7 +13,7 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .events = {
             // TODO: Should this be a check?
-            EVENT(RE_ACCESS_SEAHORSE, RANDO_EVENTS[RE_ACCESS_PIRATE_PICTURE] && HAS_ITEM(ITEM_PICTOGRAPH_BOX)),
+            EVENT(RE_ACCESS_SEAHORSE, LS_RANDO_EVENTS[RE_ACCESS_PIRATE_PICTURE] && HAS_ITEM(ITEM_PICTOGRAPH_BOX)),
         },
     };
     Regions[RR_GREAT_BAY_COAST_COW_GROTTO] = RandoRegion{ .name = "Great Bay Coast Cow Grotto", .sceneId = SCENE_KAKUSIANA,
@@ -183,7 +183,7 @@ static RegisterShipInitFunc initFunc([]() {
     };
     Regions[RR_GREAT_BAY_COAST_MINIGAME_PLATFORMS] = RandoRegion{ .sceneId = SCENE_30GYOSON,
         .checks = {
-            CHECK(RC_GREAT_BAY_COAST_FISHERMAN_MINIGAME, RANDO_EVENTS[RE_CLEARED_GREAT_BAY_TEMPLE] && (HAS_ITEM(ITEM_HOOKSHOT)) && (BETWEEN(TIME_DAY1_AM_07_00, TIME_NIGHT1_AM_04_00) || BETWEEN(TIME_DAY2_AM_07_00, TIME_NIGHT2_AM_04_00) || BETWEEN(TIME_DAY3_AM_07_00, TIME_NIGHT3_AM_04_00))),
+            CHECK(RC_GREAT_BAY_COAST_FISHERMAN_MINIGAME, LS_RANDO_EVENTS[RE_CLEARED_GREAT_BAY_TEMPLE] && (HAS_ITEM(ITEM_HOOKSHOT)) && (BETWEEN(TIME_DAY1_AM_07_00, TIME_NIGHT1_AM_04_00) || BETWEEN(TIME_DAY2_AM_07_00, TIME_NIGHT2_AM_04_00) || BETWEEN(TIME_DAY3_AM_07_00, TIME_NIGHT3_AM_04_00))),
             CHECK(RC_GREAT_BAY_COAST_TREE_01, true),
         },
         .connections = {
@@ -206,7 +206,7 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .connections = {
             CONNECTION(RR_GREAT_BAY_COAST, CAN_USE_ABILITY(SWIM)),
-            CONNECTION(RR_GREAT_BAY_COAST_MINIGAME_PLATFORMS, RANDO_EVENTS[RE_CLEARED_GREAT_BAY_TEMPLE] && (HAS_ITEM(ITEM_HOOKSHOT))),
+            CONNECTION(RR_GREAT_BAY_COAST_MINIGAME_PLATFORMS, LS_RANDO_EVENTS[RE_CLEARED_GREAT_BAY_TEMPLE] && (HAS_ITEM(ITEM_HOOKSHOT))),
         },
     };
     Regions[RR_GREAT_BAY_GREAT_FAIRY_FOUNTAIN] = RandoRegion{ .sceneId = SCENE_YOUSEI_IZUMI,
@@ -232,7 +232,7 @@ static RegisterShipInitFunc initFunc([]() {
     };
     Regions[RR_MARINE_RESEARCH_LAB] = RandoRegion{ .sceneId = SCENE_LABO,
         .checks = {
-            CHECK(RC_GREAT_BAY_COAST_NEW_WAVE_BOSSA_NOVA, CAN_BE_ZORA && HAS_ITEM(ITEM_OCARINA_OF_TIME) && RANDO_EVENTS[RE_ACCESS_ZORA_EGG] >= 7),
+            CHECK(RC_GREAT_BAY_COAST_NEW_WAVE_BOSSA_NOVA, CAN_BE_ZORA && HAS_ITEM(ITEM_OCARINA_OF_TIME) && LS_RANDO_EVENTS[RE_ACCESS_ZORA_EGG] >= 7),
             CHECK(RC_GREAT_BAY_COAST_MARINE_LAB_FISH_PIECE_OF_HEART, HAS_BOTTLE && CAN_ACCESS(FISH)),
         },
         .exits = { //     TO                                         FROM
@@ -244,7 +244,7 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(GREAT_BAY_COAST, 3),              ENTRANCE(PINNACLE_ROCK, 0), true),
         },
         .connections = {
-            CONNECTION(RR_PINNACLE_ROCK_INNER, RANDO_EVENTS[RE_ACCESS_SEAHORSE] && CAN_BE_ZORA)
+            CONNECTION(RR_PINNACLE_ROCK_INNER, LS_RANDO_EVENTS[RE_ACCESS_SEAHORSE] && CAN_BE_ZORA)
         }
     };
     Regions[RR_PINNACLE_ROCK_INNER] = RandoRegion{ .name = "Inner", .sceneId = SCENE_SINKAI,
@@ -262,7 +262,7 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_PINNACLE_ROCK_POT_09,            CAN_BE_ZORA),
             CHECK(RC_PINNACLE_ROCK_POT_10,            CAN_BE_ZORA),
             CHECK(RC_PINNACLE_ROCK_POT_11,            CAN_BE_ZORA),
-            CHECK(RC_PINNACLE_ROCK_REUNITE_SEAHORSE,  CanKillEnemy(ACTOR_EN_DRAGON) && RANDO_EVENTS[RE_ACCESS_SEAHORSE]),
+            CHECK(RC_PINNACLE_ROCK_REUNITE_SEAHORSE,  CanKillEnemy(ACTOR_EN_DRAGON) && LS_RANDO_EVENTS[RE_ACCESS_SEAHORSE]),
             CHECK(RC_ENEMY_DROP_DEEP_PYTHON,          CanKillEnemy(ACTOR_EN_DRAGON)),
         },
         .connections = {
@@ -379,8 +379,8 @@ static RegisterShipInitFunc initFunc([]() {
     };
     Regions[RR_ZORA_HALL_LULUS_ROOM] = RandoRegion{ .name = "Lulu's Room", .sceneId = SCENE_BANDROOM,
         .checks = {
-            CHECK(RC_ZORA_HALL_SCRUB_DEED,           Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN) && CAN_BE_GORON),
-            CHECK(RC_ZORA_HALL_SCRUB_PIECE_OF_HEART, Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN) && CAN_BE_GORON && CAN_BE_DEKU),
+            CHECK(RC_ZORA_HALL_SCRUB_DEED,           LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN) && CAN_BE_GORON),
+            CHECK(RC_ZORA_HALL_SCRUB_PIECE_OF_HEART, LS_Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN) && CAN_BE_GORON && CAN_BE_DEKU),
             CHECK(RC_ZORA_HALL_SCRUB_POTION_REFILL,  CAN_BE_ZORA),
         },
         .exits = { //     TO                                         FROM

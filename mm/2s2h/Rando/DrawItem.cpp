@@ -23,6 +23,11 @@ extern "C" {
 Gfx* ResourceMgr_LoadGfxByName(const char* path);
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+bool Diptych_DrawForeignModel(RandoCheckId randoCheckId);
+bool Diptych_ForeignTrap(RandoCheckId check);
+#endif
+
 s32 StrayFairyOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, Actor* thisx,
                                Gfx** gfx) {
     if (limbIndex == STRAY_FAIRY_LIMB_RIGHT_FACING_HEAD) {
@@ -728,6 +733,18 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_NONE:
         case RI_UNKNOWN:
             break;
+#ifdef DIPTYCH_GAME_MODULE
+        case RI_DIPTYCH_FOREIGN:
+            if (Diptych_ForeignTrap(randoCheckId)) {
+                Rando::DrawItem(Rando::CurrentTrapItem(randoCheckId), randoCheckId, actor);
+                return;
+            }
+            if (Diptych_DrawForeignModel(randoCheckId)) {
+                return;
+            }
+            GetItem_Draw(gPlayState, Rando::StaticData::Items[randoItemId].drawId);
+            break;
+#endif
         default:
             GetItem_Draw(gPlayState, Rando::StaticData::Items[randoItemId].drawId);
             break;
@@ -740,6 +757,9 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_SINGLE_MAGIC:
         case RI_DOUBLE_MAGIC:
         case RI_TIME_PROGRESSIVE:
+#ifdef DIPTYCH_GAME_MODULE
+        case RI_DIPTYCH_FOREIGN:
+#endif
             DrawSparkles(randoItemId, actor);
             break;
         default:

@@ -13,6 +13,8 @@
 namespace Rando {
 
 void Init();
+// Returns whether skipped changed; invalid checks, non-rando saves and no-ops emit no event.
+bool SetCheckSkipped(RandoCheckId check, bool skipped);
 void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, Actor* actor = nullptr);
 void GiveItem(RandoItemId randoItemId);
 void RemoveItem(RandoItemId randoItemId);
@@ -21,9 +23,12 @@ RandoItemId CurrentTrapItem(RandoCheckId randoCheckId = RC_UNKNOWN);
 bool IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN);
 RandoItemId ConvertItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN);
 RandoCheckId FindItemPlacement(RandoItemId randoItemId);
+std::string GetItemLocationNameForHint(RandoItemId randoItemId);
+std::string AbroadLocationNameForHint(RandoItemId randoItemId);
 void RegisterMenu();
 
-std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo);
+std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo,
+                                                  s32 (*seededRandom)(u64 seed, s32 min, s32 max) = nullptr);
 void GrantStartingItems();
 std::vector<RandoItemId> GetStartingItemsFromSpoiler(nlohmann::json& spoiler);
 void SetStartingItemsInSpoiler(nlohmann::json& spoiler, std::vector<RandoItemId>& startingItems);

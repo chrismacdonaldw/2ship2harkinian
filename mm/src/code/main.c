@@ -47,9 +47,11 @@ s32 gScreenWidth = SCREEN_WIDTH;
 s32 gScreenHeight = SCREEN_HEIGHT;
 size_t gSystemHeapSize = 0;
 
+int gDiptychHosted = 0;
+
 void InitOTR(int argc, char* argv[]);
 void Heaps_Free(void);
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(DIPTYCH_GAME_MODULE)
 #define SDL_main main
 #endif
 
@@ -119,6 +121,10 @@ int SDL_main(int argc, char* argv[] /* void* arg*/) {
     osCreateThread(&gGraphThread, Z_THREAD_ID_GRAPH, Graph_ThreadEntry, NULL, STACK_TOP(sGraphStack), Z_PRIORITY_GRAPH);
     osStartThread(&gGraphThread);
 #endif
+
+    if (gDiptychHosted) {
+        return 0;
+    }
 
     Graph_ThreadEntry(0);
 

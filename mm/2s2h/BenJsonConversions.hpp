@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include "build.h"
+#include "Rando/Compatibility.h"
 
 extern "C" {
 #include "z64save.h"
@@ -134,6 +135,9 @@ inline void to_json(json& j, const ShipSaveInfo& shipSaveInfo) {
 
     if (shipSaveInfo.saveType == SAVETYPE_RANDO) {
         j["rando"] = shipSaveInfo.rando;
+#ifdef DIPTYCH_GAME_MODULE
+        j[Rando::Compatibility::kField] = Rando::Compatibility::kSchema;
+#endif
     }
 }
 
@@ -146,15 +150,17 @@ inline void from_json(const json& j, ShipSaveInfo& shipSaveInfo) {
     j.at("fileCompletedAt").get_to(shipSaveInfo.fileCompletedAt);
     j.at("filePlaytime").get_to(shipSaveInfo.filePlaytime);
     j.at("respawn").get_to(shipSaveInfo.respawn);
-    j.at("commitHash").get_to(shipSaveInfo.commitHash);
-
     if (shipSaveInfo.saveType == SAVETYPE_RANDO) {
-        if (strcmp(shipSaveInfo.commitHash, gGitCommitHash) != 0) {
-            SPDLOG_ERROR("Randomizer saves cannot be loaded from a different version.");
-            throw new std::runtime_error("Randomizer saves cannot be loaded from a different version.");
+        std::string origin;
+        if (!Rando::Compatibility::Save(j, gGitCommitHash, origin)) {
+            SPDLOG_ERROR("Randomizer save has an incompatible schema or creation build.");
+            throw std::runtime_error("Randomizer save has an incompatible schema or creation build.");
         }
-
+        memcpy(shipSaveInfo.commitHash, origin.data(), 7);
+        shipSaveInfo.commitHash[7] = '\0';
         j.at("rando").get_to(shipSaveInfo.rando);
+    } else {
+        j.at("commitHash").get_to(shipSaveInfo.commitHash);
     }
 }
 

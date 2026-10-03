@@ -1,3 +1,7 @@
+#ifdef DIPTYCH_GAME_MODULE
+#include "DiptychTracker.h"
+#include "test_folder.h"
+#endif
 
 #include "CheckTracker.h"
 #include "2s2h/Rando/Logic/Logic.h"
@@ -6,6 +10,9 @@
 #include "2s2h/Rando/StaticData/StaticData.h"
 #include "2s2h/BenPort.h"
 #include <cstring>
+#ifdef DIPTYCH_GAME_MODULE
+std::string Diptych_ForeignPlacedName(RandoCheckId check);
+#endif
 
 // Image Icons
 #include "assets/2s2h_assets.h"
@@ -271,73 +278,51 @@ bool CheckTrackerIsFiltered(RandoCheckId randoCheckId) {
 std::unordered_map<RandoCheckId, bool> checksInLogic;
 static u32 lastFrame = 0;
 
+void ComputeChecksInLogic();
+
 void RefreshChecksInLogic() {
     if (gGameState == NULL || gGameState->frames - lastFrame < 20 || CVAR_OUT_OF_LOGIC_MODE == CHECK_MODE_NORMAL) {
         return;
     }
 
     lastFrame = gGameState->frames;
+    ComputeChecksInLogic();
+}
+
+void ComputeChecksInLogic() {
     checksInLogic.clear();
 
-    // Clear all events so they're re-evaluated fresh each refresh
-    for (int i = 0; i < RE_MAX; i++) {
-        RANDO_EVENTS[i] = 0;
-    }
+    Rando::Logic::State state = Rando::Logic::FromSave(gSaveContext);
+    memset(state.events, 0, sizeof(state.events));
 
-    std::set<RandoRegionId> reachableRegions = {
-        RR_MAX,
-        Rando::Logic::GetRegionIdFromEntrance(gSaveContext.save.entrance),
-    };
-    // Initialize time states using shared function
-    std::unordered_map<RandoRegionId, Rando::Logic::RegionTimeState> regionTimeStates =
-        Rando::Logic::InitializeRegionTimeStates(RR_MAX);
+    Rando::Logic::SearchResult result = Rando::Logic::Search(
+        state, { { RR_MAX }, { Rando::Logic::GetRegionIdFromEntrance(gSaveContext.save.entrance) } });
 
-    std::set<std::pair<RandoEvent, std::function<bool()>>*> appliedEvents;
+    memcpy(RANDO_EVENTS, result.state.events, sizeof(result.state.events));
 
-    // Iteratively explore until no new regions/events discovered
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        auto prevSize = reachableRegions.size();
-
-        // Explore from all currently reachable regions
-        std::set<RandoRegionId> regionsToExplore = reachableRegions;
-        for (RandoRegionId regionId : regionsToExplore) {
-            Rando::Logic::FindReachableRegions(regionId, reachableRegions, regionTimeStates);
+    for (RandoCheckId randoCheckId : result.checks) {
+        auto& randoSaveCheck = RANDO_SAVE_CHECKS[randoCheckId];
+        if (randoSaveCheck.shuffled && !randoSaveCheck.obtained) {
+            checksInLogic.insert({ randoCheckId, true });
         }
+    }
+}
 
-        // Trigger events for newly discovered regions
-        for (RandoRegionId regionId : reachableRegions) {
-            auto& randoRegion = Rando::Logic::Regions[regionId];
-            Rando::Logic::SetCurrentRegionTime(regionTimeStates, regionId);
-
-            for (auto& event : randoRegion.events) {
-                if (!appliedEvents.contains(&event) && event.second()) {
-                    RANDO_EVENTS[event.first]++;
-                    appliedEvents.insert(&event);
-                    changed = true;
-                }
+std::string CheckTrackerItemText(RandoCheckId randoCheckId) {
+    RandoSaveCheck& randoSaveCheck = RANDO_SAVE_CHECKS[randoCheckId];
+    if (randoSaveCheck.obtained) {
+        std::string name = Rando::StaticData::Items[randoSaveCheck.randoItemId].name;
+#ifdef DIPTYCH_GAME_MODULE
+        if (randoSaveCheck.randoItemId == RI_DIPTYCH_FOREIGN) {
+            const auto placed = Diptych_ForeignPlacedName(randoCheckId);
+            if (!placed.empty()) {
+                name = "OoT " + placed;
             }
         }
-
-        if (reachableRegions.size() != prevSize) {
-            changed = true;
-        }
+#endif
+        return name;
     }
-
-    // Evaluate checks for all reachable regions
-    for (RandoRegionId regionId : reachableRegions) {
-        auto& randoRegion = Rando::Logic::Regions[regionId];
-        Rando::Logic::SetCurrentRegionTime(regionTimeStates, regionId);
-
-        for (auto& [randoCheckId, accessLogicFunc] : randoRegion.checks) {
-            auto& randoStaticCheck = Rando::StaticData::Checks[randoCheckId];
-            auto& randoSaveCheck = RANDO_SAVE_CHECKS[randoCheckId];
-            if (randoSaveCheck.shuffled && !randoSaveCheck.obtained && accessLogicFunc.first()) {
-                checksInLogic.insert({ randoCheckId, true });
-            }
-        }
-    }
+    return randoSaveCheck.skipped ? "Skipped" : "";
 }
 
 void CheckTrackerDrawNonLogicalList() {
@@ -440,14 +425,19 @@ void CheckTrackerDrawNonLogicalList() {
                     ImGui::TableNextColumn();
 
                     ImGui::SetCursorPosY(cursorPosY);
+                    const std::string itemText = CheckTrackerItemText(randoCheckId);
+#ifdef DIPTYCH_GAME_MODULE
+                    std::string rowText = Rando::StaticData::CheckNames[randoCheckId];
+                    if (!itemText.empty()) rowText += " (" + itemText + ")";
+                    // Preserve native row grouping/clicks while keeping long names readable in a narrow tracker.
+                    ImGui::TextWrapped("%s", rowText.c_str());
+#else
                     ImGui::Text("%s", Rando::StaticData::CheckNames[randoCheckId].c_str());
-                    if (randoSaveCheck.obtained) {
+                    if (!itemText.empty()) {
                         ImGui::SameLine();
-                        ImGui::Text("(%s)", Rando::StaticData::Items[randoSaveCheck.randoItemId].name);
-                    } else if (randoSaveCheck.skipped) {
-                        ImGui::SameLine();
-                        ImGui::Text("(Skipped)");
+                        ImGui::Text("(%s)", itemText.c_str());
                     }
+#endif
                     ImGui::SameLine();
                     ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 0));
                     ImGui::EndGroup();
@@ -469,7 +459,7 @@ void CheckTrackerDrawNonLogicalList() {
                                                                           ? IM_COL32(255, 255, 0, 128)
                                                                           : IM_COL32(255, 255, 255, 0));
                     if (ImGui::IsItemClicked()) {
-                        randoSaveCheck.skipped = !randoSaveCheck.skipped;
+                        Rando::SetCheckSkipped(randoCheckId, !randoSaveCheck.skipped);
                     }
                     ImGui::TableNextColumn();
                 }
@@ -487,7 +477,11 @@ namespace Rando {
 namespace CheckTracker {
 
 void CheckTrackerWindow::Draw() {
+#ifdef DIPTYCH_GAME_MODULE
+    if (!DiptychTracker::Enabled()) {
+#else
     if (!CVAR_SHOW_CHECK_TRACKER) {
+#endif
         return;
     }
 
@@ -508,9 +502,43 @@ void CheckTrackerWindow::Draw() {
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
 
+#ifdef DIPTYCH_GAME_MODULE
+    ImGui::SetNextWindowSize(ImVec2(485.0f * trackerScale, 500.0f * trackerScale), ImGuiCond_FirstUseEver);
+#else
     ImGui::SetNextWindowSize(ImVec2(485.0f, 500.0f), ImGuiCond_FirstUseEver);
+#endif
 
+#ifdef DIPTYCH_GAME_MODULE
+    DiptychTracker::Prepare();
+    static bool testFilterApplied = false;
+    if (const char* test = DiptychTestEnv("DIPTYCH_TEST_CHECK_TRACKER")) {
+        if (!testFilterApplied && strncmp(test, "mm:", 3) == 0) {
+            testFilterApplied = true;
+            const char* search = test + 3;
+            const char* suffix = strchr(search, '|');
+            snprintf(sCheckTrackerFilter.InputBuf, sizeof(sCheckTrackerFilter.InputBuf), "%.*s",
+                     static_cast<int>(suffix ? suffix - search : strlen(search)), search);
+            sCheckTrackerFilter.Build();
+        }
+    }
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing;
+    if (DiptychTracker::Floating()) {
+        ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+        flags |= ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollWithMouse;
+        if (!DiptychTracker::Draggable()) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+    }
+    bool open = true;
+    const bool drawContents = ImGui::Begin(DiptychTracker::Title(), &open, flags);
+    DiptychTracker::AfterBegin(open);
+    if (!drawContents) {
+        ImGui::End();
+        ImGui::PopStyleColor(4);
+        ImGui::PopStyleVar(1);
+        return;
+    }
+#else
     ImGui::Begin("Check Tracker", nullptr, ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
+#endif
 
     trackerBG.w = ImGui::IsWindowDocked() ? 1.0f : CVAR_TRACKER_OPACITY;
     ImGui::SetWindowFontScale(trackerScale);
@@ -633,6 +661,9 @@ void CheckTrackerWindow::Draw() {
 }
 
 void SettingsWindow::DrawElement() {
+#ifdef DIPTYCH_GAME_MODULE
+    DiptychTracker::DrawControls();
+#else
     if (CVarGetInteger("gWindows.CheckTracker", 0)) {
         UIWidgets::WindowButton("Disable Check Tracker", "gWindows.CheckTracker", BenGui::mRandoCheckTrackerWindow,
                                 { .size = UIWidgets::Sizes::Inline, .color = UIWidgets::Colors::Red });
@@ -640,6 +671,7 @@ void SettingsWindow::DrawElement() {
         UIWidgets::WindowButton("Enable Check Tracker", "gWindows.CheckTracker", BenGui::mRandoCheckTrackerWindow,
                                 { .size = UIWidgets::Sizes::Inline, .color = UIWidgets::Colors::Green });
     }
+#endif
     if (ImGui::BeginTable("Settings Table", 2)) {
         ImGui::TableSetupColumn("col1", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("col2", ImGuiTableColumnFlags_WidthStretch);

@@ -1,4 +1,7 @@
 #include "ActorBehavior.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychModule_ForeignItems.h"
+#endif
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
 #include "2s2h/Rando/StaticData/StaticData.h"
@@ -54,6 +57,9 @@ void EnBox_RandoPostLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3s*
     EnBox* enBox = (EnBox*)actor;
     RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[ENBOX_RC].randoItemId, (RandoCheckId)ENBOX_RC);
     RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+#ifdef DIPTYCH_GAME_MODULE
+    randoItemType = Diptych_ForeignItemType(randoItemId, (RandoCheckId)ENBOX_RC, randoItemType);
+#endif
     if (enBox->unk_1EC != 0 && actor->home.rot.z == 0) {
         actor->home.rot.z = randoItemType + 1;
     }

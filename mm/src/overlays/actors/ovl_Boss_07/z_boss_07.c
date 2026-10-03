@@ -30,6 +30,9 @@
 #include "2s2h/BenPort.h"
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychGoals.h"
+#endif
 
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -1751,6 +1754,13 @@ void Boss07_Wrath_IntroCutscene(Boss07* this, PlayState* play) {
 void Boss07_Wrath_SetupDeathCutscene(Boss07* this, PlayState* play) {
     s32 i;
 
+#ifdef DIPTYCH_GAME_MODULE
+    if (!Diptych_MajoraDefeated()) {
+        this->shouldStartDeath = true;
+        return;
+    }
+#endif
+
     SEQCMD_STOP_SEQUENCE(SEQ_PLAYER_BGM_MAIN, 1);
     Boss07_MovePlayerFromCenter(play);
     this->actionFunc = Boss07_Wrath_DeathCutscene;
@@ -1775,6 +1785,9 @@ void Boss07_Wrath_SetupDeathCutscene(Boss07* this, PlayState* play) {
 
     GameInteractor_ExecuteOnBossDefeated(this->actor.id); // 2S2H Time Splits
     GameInteractor_ExecuteOnGameCompletion();
+#ifdef DIPTYCH_GAME_MODULE
+    Diptych_GoalCreditsReady();
+#endif
 }
 
 void Boss07_Wrath_DeathCutscene(Boss07* this, PlayState* play) {

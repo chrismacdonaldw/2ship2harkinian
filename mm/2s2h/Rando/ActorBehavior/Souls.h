@@ -6,5 +6,6 @@
 #define SOUL_RI_TO_RANDO_INF(randoItemId) ((randoItemId - RI_SOUL_BOSS_GOHT) + RANDO_INF_OBTAINED_SOUL_OF_BOSS_GOHT)
 
 extern bool HaveEnemySoul(ActorId enemyId);
+extern s32 GetEnemySoulRandoInf(ActorId enemyId);
 
 #endif // SOULS_H

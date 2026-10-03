@@ -15,6 +15,17 @@ extern TexturePtr gItemIcons[131];
 extern s16 D_801CFF94[250];
 }
 
+#ifdef DIPTYCH_GAME_MODULE
+void Diptych_RememberForeignActor(Actor* actor, RandoCheckId randoCheckId);
+RandoCheckId Diptych_ForeignActorCheck(Actor* actor);
+// 0: queue it; 1: not claimed yet, try again; 2: the inbox gives it
+int Diptych_ClaimCheck(RandoCheckId rc);
+void Diptych_GiveCheck(RandoCheckId rc, RandoItemId item);
+std::string Diptych_ForeignItemMessage(RandoCheckId rc);
+bool Diptych_ForeignTrap(RandoCheckId check);
+std::string Diptych_ForeignTrapMessage();
+#endif
+
 static bool queued = false;
 
 // This function handles queuing up item gives that the player has been marked as eligible for. If you are looking for
@@ -35,6 +46,17 @@ void Rando::MiscBehavior::CheckQueue() {
         auto randoSaveCheck = RANDO_SAVE_CHECKS[randoCheckId];
 
         if (randoSaveCheck.eligible) {
+#ifdef DIPTYCH_GAME_MODULE
+            const int diptychClaim = Diptych_ClaimCheck(randoCheckId);
+            if (diptychClaim == 2) {
+                RANDO_SAVE_CHECKS[randoCheckId].cycleObtained = true;
+                RANDO_SAVE_CHECKS[randoCheckId].obtained = true;
+                RANDO_SAVE_CHECKS[randoCheckId].eligible = false;
+            }
+            if (diptychClaim != 0) {
+                continue;
+            }
+#endif
             queued = true;
 
             GameInteractor::Instance->events.emplace_back(GIEventGiveItem{
@@ -62,6 +84,17 @@ void Rando::MiscBehavior::CheckQueue() {
                             randoItemId = RI_TRIFORCE_PIECE_PREVIOUS;
                         }
 
+#ifdef DIPTYCH_GAME_MODULE
+                        const bool foreignTrap = randoItemId == RI_DIPTYCH_FOREIGN &&
+                                                 Diptych_ForeignTrap((RandoCheckId)CUSTOM_ITEM_PARAM);
+                        if (foreignTrap) {
+                            prefix = "";
+                            message = Diptych_ForeignTrapMessage();
+                            if (CVarGetInteger("gEnhancements.Cutscenes.SkipGetItemCutscenes", 0) >= 2) {
+                                message = CustomMessage::RemoveColorCodes(message);
+                            }
+                        }
+#endif
                         if (randoItemId == RI_TRAP) {
                             prefix = "";
                             message = GetTrapMessage();
@@ -72,10 +105,19 @@ void Rando::MiscBehavior::CheckQueue() {
                             }
                         }
 
+#ifdef DIPTYCH_GAME_MODULE
+                        const std::string boxMessage = randoItemId == RI_DIPTYCH_FOREIGN && !foreignTrap
+                                                           ? Diptych_ForeignItemMessage((RandoCheckId)CUSTOM_ITEM_PARAM)
+                                                           : message;
+                        const bool trapBox = randoItemId == RI_TRAP || foreignTrap;
+#else
+                        const std::string& boxMessage = message;
+                        const bool trapBox = randoItemId == RI_TRAP;
+#endif
                         CustomMessage::Entry entry = {
                             .textboxType = 2,
-                            .icon = Rando::StaticData::GetIconForZMessage(randoItemId),
-                            .msg = (prefix == "" ? "" : prefix + " ") + message + (randoItemId == RI_TRAP ? "" : "!"),
+                            .icon = Rando::StaticData::GetIconForZMessage(trapBox ? RI_TRAP : randoItemId),
+                            .msg = (prefix == "" ? "" : prefix + " ") + boxMessage + (trapBox ? "" : "!"),
                         };
 
                         if (CUSTOM_ITEM_FLAGS & CustomItem::GIVE_ITEM_CUTSCENE) {
@@ -91,11 +133,20 @@ void Rando::MiscBehavior::CheckQueue() {
                                 });
                             }
                         }
+#ifdef DIPTYCH_GAME_MODULE
+                        Diptych_GiveCheck((RandoCheckId)CUSTOM_ITEM_PARAM, randoItemId);
+#else
                         Rando::GiveItem(randoItemId);
+#endif
                         randoSaveCheck.cycleObtained = true;
                         randoSaveCheck.obtained = true;
                         randoSaveCheck.eligible = false;
                         queued = false;
+#ifdef DIPTYCH_GAME_MODULE
+                        if (randoItemId == RI_DIPTYCH_FOREIGN) {
+                            Diptych_RememberForeignActor(actor, (RandoCheckId)CUSTOM_ITEM_PARAM);
+                        }
+#endif
                         CUSTOM_ITEM_PARAM = randoItemId;
                     },
                 .drawItem =
@@ -116,6 +167,12 @@ void Rando::MiscBehavior::CheckQueue() {
                         }
 
                         Matrix_Scale(30.0f, 30.0f, 30.0f, MTXMODE_APPLY);
+#ifdef DIPTYCH_GAME_MODULE
+                        if ((CUSTOM_ITEM_FLAGS & CustomItem::CALLED_ACTION) && randoItemId == RI_DIPTYCH_FOREIGN) {
+                            Rando::DrawItem(randoItemId, Diptych_ForeignActorCheck(actor), actor);
+                            return;
+                        }
+#endif
                         Rando::DrawItem(randoItemId, (RandoCheckId)CUSTOM_ITEM_PARAM, actor);
                     } });
             return;

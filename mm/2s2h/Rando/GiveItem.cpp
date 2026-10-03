@@ -2,6 +2,9 @@
 #include "Rando/ActorBehavior/Souls.h"
 #include "Rando/MiscBehavior/MiscBehavior.h"
 #include "Rando/MiscBehavior/ClockShuffle.h"
+#ifdef DIPTYCH_GAME_MODULE
+#include "2s2h/DiptychGoals.h"
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -129,7 +132,11 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_TRIFORCE_PIECE_PREVIOUS:
             gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces++;
             if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces ==
-                RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
+                    RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]
+#ifdef DIPTYCH_GAME_MODULE
+                && Diptych_TriforceComplete()
+#endif
+            ) {
                 // Blocks the ability to beat the game through killing Majora until all Triforce Pieces are found.
                 if (!Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_MAJORA)) {
                     Rando::GiveItem(RI_SOUL_BOSS_MAJORA);
@@ -406,6 +413,10 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_JUNK:
         case RI_NONE:
             break;
+#ifdef DIPTYCH_GAME_MODULE
+        case RI_DIPTYCH_FOREIGN:
+            break;
+#endif
         default:
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);
             break;

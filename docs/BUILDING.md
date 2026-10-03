@@ -43,6 +43,20 @@ cd 2ship2harkinian
 # Now you can run the executable in .\build\x64 or run in Visual Studio
 ```
 
+### Using a provisioned Windows dependency SDK
+
+Automatic vcpkg setup remains the default. To use an already provisioned SDK without automatic vcpkg cloning, updating or package installation during configure, set `SKIP_AUTOMATE_VCPKG=ON` and supply its toolchain. The SDK must contain the packages listed in the root CMake file for `x64-windows-static`; pin the SDK revision for reproducible builds.
+
+For a standalone executable, initialize this fork's declared submodules and use a fresh cache with embedding disabled:
+
+```powershell
+git submodule update --init
+cmake -S . -B build/standalone -G "Visual Studio 17 2022" -T v143 -A x64 -DSKIP_AUTOMATE_VCPKG=ON -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static -DDIPTYCH_ROOT= -DDIPTYCH_GAME_MODULE=OFF -DDIPTYCH_SHARED_ENGINE=OFF
+cmake --build build/standalone --config Release --target 2ship
+```
+
+No Diptych checkout is needed. Generate2ShipOtr is the separate native resource-pack target; building the executable does not require extracting a user's ROM. A nonempty `DIPTYCH_ROOT` opts into combined sources even when the module option is OFF, so keep standalone and integrated caches separate. Native FetchContent dependencies may still be fetched during configure. Integrated builds must provision their selected shared-engine triplet independently.
+
 ### Developing 2S2H
 With the cmake build system you have two options for working on the project:
 
@@ -309,3 +323,11 @@ You'll have to enable the ability to run unsigned scripts through PowerShell. To
 
 ### Runner on UNIX systems
 If you're on macOS or Linux take a look at `macports-deps.txt` or `apt-deps.txt` to see the dependencies expected to be on your machine.
+
+## Reviewed upstream updates
+
+After the setup is merged into this fork's default branch, the upstream-sync workflow checks the canonical upstream daily and can be started manually. It proposes a normal merge into `develop`, preserving this fork's changes. It leaves one frozen proposal open for review; it does not merge, force-push, resolve conflicts or create releases. An update that changes workflow/automation files is held for manual review.
+
+Each proposal dispatches the Native check workflow at the candidate branch with its exact commit as `expected_sha`. The validator has read-only repository permissions and no supplied secrets. It builds the standalone Windows executable with a pinned vcpkg SDK and runs the native save-publication regression, using dependency/build caches. It does not extract ROMs or package game resources. The inherited packaging/artifact jobs do not run for sync proposal branches.
+
+Review the candidate diff and the successful Native check run for that exact commit before merging. A stale, failed or missing check is not validation; changing the proposal branch requires a new exact-commit check. A blocked update should be handled on a separate reviewed branch rather than rewriting the frozen proposal.

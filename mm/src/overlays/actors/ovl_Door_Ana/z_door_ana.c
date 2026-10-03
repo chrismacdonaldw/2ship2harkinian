@@ -9,6 +9,10 @@
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 
+#ifdef DIPTYCH_GAME_MODULE
+void Diptych_OverrideGrottoEntry(PlayState* play, Actor* actor);
+#endif
+
 #define FLAGS (ACTOR_FLAG_UPDATE_DURING_OCARINA)
 
 void DoorAna_Init(Actor* thisx, PlayState* play);
@@ -156,6 +160,9 @@ void DoorAna_WaitOpen(DoorAna* this, PlayState* play) {
                 play->nextEntrance = sEntrances[destinationIdx];
             }
 
+#ifdef DIPTYCH_GAME_MODULE
+            Diptych_OverrideGrottoEntry(play, &this->actor);
+#endif
             DoorAna_SetupAction(this, DoorAna_GrabLink);
 
         } else if (!Play_InCsMode(play) && !(player->stateFlags1 & (PLAYER_STATE1_8000000 | PLAYER_STATE1_800000)) &&
