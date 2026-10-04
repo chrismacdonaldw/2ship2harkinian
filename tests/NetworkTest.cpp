@@ -100,7 +100,23 @@ int main() {
     Require(!client.isConnected && !client.isEnabled, "disable state");
     Require(!client.QueueOutgoingPacket({ { "type", "LATE" } }), "disabled queue accepted");
     Require(client.Enable("127.0.0.1", port), "reenable failed");
+    peer = nullptr;
+    Require(Wait([&] {
+                peer = SDLNet_TCP_Accept(listener);
+                return peer != nullptr;
+            }),
+            "stalled peer connect");
+    Require(Wait([&] { return client.isConnected.load(); }), "stalled peer state");
+    // The peer intentionally never reads. Fill beyond normal TCP buffers, then stop the sender.
+    const nlohmann::json large{ { "type", "PRESSURE" }, { "payload", std::string(900000, 'x') } };
+    for (int i = 0; i < 24; ++i) {
+        client.QueueOutgoingPacket(large);
+        SDL_Delay(10);
+    }
+    const auto stop = std::chrono::steady_clock::now();
     client.Disable();
+    Require(std::chrono::steady_clock::now() - stop < std::chrono::seconds(1), "stalled send prevented shutdown");
+    SDLNet_TCP_Close(peer);
     SDLNet_TCP_Close(listener);
     SDLNet_Quit();
     std::cout << "Native transport framing/reconnect/shutdown passed\n";

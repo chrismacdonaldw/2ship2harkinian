@@ -1,6 +1,98 @@
-#include "Network.h"
 #ifdef ENABLE_ANCHOR
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#endif
+#include "Network.h"
 #include <algorithm>
+
+namespace {
+#ifdef _WIN32
+using Socket = SOCKET;
+constexpr Socket INVALID = INVALID_SOCKET;
+void Close(Socket socket) {
+    closesocket(socket);
+}
+bool Pending() {
+    const int error = WSAGetLastError();
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINTR;
+}
+bool Nonblocking(Socket socket) {
+    u_long on = 1;
+    return ioctlsocket(socket, FIONBIO, &on) == 0;
+}
+#else
+using Socket = int;
+constexpr Socket INVALID = -1;
+void Close(Socket socket) {
+    close(socket);
+}
+bool Pending() {
+    return errno == EWOULDBLOCK || errno == EAGAIN || errno == EINPROGRESS || errno == EINTR;
+}
+bool Nonblocking(Socket socket) {
+    const int flags = fcntl(socket, F_GETFL, 0);
+    return flags >= 0 && fcntl(socket, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+#endif
+int Poll(Socket socket, bool write) {
+#ifndef _WIN32
+    if (socket < 0 || socket >= FD_SETSIZE)
+        return -1;
+#endif
+    fd_set ready;
+    FD_ZERO(&ready);
+    FD_SET(socket, &ready);
+    timeval timeout{ 0, 25000 };
+    const int result =
+        select(static_cast<int>(socket + 1), write ? nullptr : &ready, write ? &ready : nullptr, nullptr, &timeout);
+    return result < 0 && Pending() ? 0 : result;
+}
+Socket Connect(const IPaddress& address, const std::atomic<bool>& enabled) {
+    Socket socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socket == INVALID)
+        return INVALID;
+    if (!Nonblocking(socket)) {
+        Close(socket);
+        return INVALID;
+    }
+    sockaddr_in target{};
+    target.sin_family = AF_INET;
+    target.sin_addr.s_addr = address.host;
+    target.sin_port = address.port;
+    if (::connect(socket, reinterpret_cast<const sockaddr*>(&target), sizeof(target)) == 0)
+        return socket;
+    if (!Pending()) {
+        Close(socket);
+        return INVALID;
+    }
+    const auto deadline = SDL_GetTicks64() + 3000;
+    while (enabled && SDL_GetTicks64() < deadline) {
+        const int ready = Poll(socket, true);
+        if (ready < 0)
+            break;
+        if (ready == 0)
+            continue;
+        int error = 0;
+#ifdef _WIN32
+        int size = sizeof(error);
+#else
+        socklen_t size = sizeof(error);
+#endif
+        if (getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &size) == 0 && error == 0)
+            return socket;
+        break;
+    }
+    Close(socket);
+    return INVALID;
+}
+} // namespace
 
 Network::~Network() {
     Disable();
@@ -111,9 +203,24 @@ bool Network::ProcessOutgoingPackets() {
         const std::string& packet = packets.front();
         size_t offset = 0;
         while (offset < packet.size() && isEnabled) {
+            const Socket socket = static_cast<Socket>(networkSocket);
+            const int ready = Poll(socket, true);
+            if (ready < 0)
+                return false;
+            if (ready == 0)
+                continue;
+#ifdef _WIN32
+            constexpr int flags = 0;
+#elif defined(MSG_NOSIGNAL)
+            constexpr int flags = MSG_NOSIGNAL;
+#else
+            constexpr int flags = 0;
+#endif
             const int sent =
-                SDLNet_TCP_Send(networkSocket, packet.data() + offset, static_cast<int>(packet.size() - offset));
+                static_cast<int>(send(socket, packet.data() + offset, static_cast<int>(packet.size() - offset), flags));
             if (sent <= 0) {
+                if (sent < 0 && Pending())
+                    continue;
                 return false;
             }
             offset += static_cast<size_t>(sent);
@@ -126,8 +233,8 @@ bool Network::ProcessOutgoingPackets() {
 void Network::ReceiveFromServer() {
     uint32_t retryDelay = 1000;
     while (isEnabled) {
-        networkSocket = SDLNet_TCP_Open(&networkAddress);
-        if (networkSocket == nullptr) {
+        networkSocket = static_cast<intptr_t>(Connect(networkAddress, isEnabled));
+        if (static_cast<Socket>(networkSocket) == INVALID) {
             uint32_t remaining = retryDelay;
             retryDelay = std::min(retryDelay * 2, 30000u);
             while (isEnabled && remaining > 0) {
@@ -137,16 +244,10 @@ void Network::ReceiveFromServer() {
             }
             continue;
         }
-        SDLNet_SocketSet socketSet = SDLNet_AllocSocketSet(1);
-        if (socketSet == nullptr || SDLNet_TCP_AddSocket(socketSet, networkSocket) < 0) {
-            if (socketSet != nullptr) {
-                SDLNet_FreeSocketSet(socketSet);
-            }
-            SDLNet_TCP_Close(networkSocket);
-            networkSocket = nullptr;
-            isEnabled = false;
-            break;
-        }
+#if !defined(_WIN32) && defined(SO_NOSIGPIPE)
+        int noSignal = 1;
+        setsockopt(static_cast<Socket>(networkSocket), SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal));
+#endif
         receivedData.clear();
         ClearQueues();
         ++connectionGeneration;
@@ -154,14 +255,17 @@ void Network::ReceiveFromServer() {
         retryDelay = 1000;
         while (isEnabled) {
             try {
-                const int ready = SDLNet_CheckSockets(socketSet, 25);
+                const int ready = Poll(static_cast<Socket>(networkSocket), false);
                 if (ready < 0) {
                     break;
                 }
-                if (ready > 0 && SDLNet_SocketReady(networkSocket)) {
+                if (ready > 0) {
                     char bytes[4096];
-                    const int size = SDLNet_TCP_Recv(networkSocket, bytes, sizeof(bytes));
+                    const int size =
+                        static_cast<int>(recv(static_cast<Socket>(networkSocket), bytes, sizeof(bytes), 0));
                     if (size <= 0) {
+                        if (size < 0 && Pending())
+                            continue;
                         break;
                     }
                     receivedData.append(bytes, static_cast<size_t>(size));
@@ -188,9 +292,8 @@ void Network::ReceiveFromServer() {
         }
         isConnected = false;
         ++connectionGeneration;
-        SDLNet_FreeSocketSet(socketSet);
-        SDLNet_TCP_Close(networkSocket);
-        networkSocket = nullptr;
+        Close(static_cast<Socket>(networkSocket));
+        networkSocket = -1;
         receivedData.clear();
         ClearQueues();
     }
