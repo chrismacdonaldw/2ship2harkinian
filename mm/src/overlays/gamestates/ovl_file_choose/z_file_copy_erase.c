@@ -467,6 +467,11 @@ void FileSelect_CopyWaitForFlashSave(GameState* thisx) {
     Sram_UpdateWriteToFlashDefault(sramCtx);
 
     if (sramCtx->status == 0) {
+        if (sramCtx->writeResult != 0) {
+            STOP_GAMESTATE(&this->state);
+            SET_NEXT_GAMESTATE(&this->state, FileSelect_Init, sizeof(FileSelectState));
+            return;
+        }
         this->configMode = CM_COPY_ANIM_1;
 
         for (i = 0; i < 6; i++) {

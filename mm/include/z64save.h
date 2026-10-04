@@ -236,7 +236,11 @@ typedef struct SramContext {
     /* 0x20 */ s16 unk_20;
     /* 0x22 */ s16 unk_22;
     /* 0x24 */ s16 unk_24;
-} SramContext; // size = 0x28
+    // 2S2H: transient completion and owl preparation; never serialized.
+    s32 writeResult;
+    s16 owlSaveBeforeWrite;
+    u16 checksumBeforeWrite;
+} SramContext;
 
 typedef struct ItemEquips {
     /* 0x00 */ u8 buttonItems[4][4];                    // "register_item"

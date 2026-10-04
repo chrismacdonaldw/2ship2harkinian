@@ -2046,6 +2046,7 @@ void Sram_Alloc(GameState* gameState, SramContext* sramCtx) {
     if (gSaveContext.flashSaveAvailable) {
         sramCtx->saveBuf = THA_AllocTailAlign16(&gameState->tha, SAVE_BUFFER_SIZE);
         sramCtx->status = 0;
+        sramCtx->writeResult = 0;
     }
 }
 
@@ -2101,26 +2102,26 @@ void Sram_SetFlashPagesDefault(SramContext* sramCtx, u32 curPage, u32 numPages) 
     sramCtx->curPage = curPage;
     sramCtx->numPages = numPages;
     sramCtx->status = 1;
+    sramCtx->writeResult = 0;
 }
 
 void Sram_StartWriteToFlashDefault(SramContext* sramCtx) {
     // async flash write
     SysFlashrom_WriteDataAsync(sramCtx->saveBuf, sramCtx->curPage, sramCtx->numPages);
 
+    sramCtx->writeResult = SysFlashrom_AwaitResult();
     sramCtx->startWriteOsTime = osGetTime();
     sramCtx->status = 2;
 }
 
 void Sram_UpdateWriteToFlashDefault(SramContext* sramCtx) {
+    if (sramCtx->writeResult != 0) {
+        sramCtx->status = 0;
+        return;
+    }
     if (sramCtx->status == 2) {
         if (SysFlashrom_IsBusy() != 0) {          // if task running
-            if (SysFlashrom_AwaitResult() == 0) { // wait for task done
-                // task success
-                sramCtx->status = 4;
-            } else {
-                // task failure
-                sramCtx->status = 4;
-            }
+            sramCtx->status = 4;
         }
     } else if (GameInteractor_Should(VB_SAVE_DELAY,
                                      OSTIME_TO_TIMER(osGetTime() - sramCtx->startWriteOsTime) >= SECONDS_TO_TIMER(2))) {
@@ -2132,33 +2133,35 @@ void Sram_SetFlashPagesOwlSave(SramContext* sramCtx, s32 curPage, s32 numPages) 
     sramCtx->curPage = curPage;
     sramCtx->numPages = numPages;
     sramCtx->status = 6;
+    sramCtx->writeResult = 0;
 }
 
 void Sram_StartWriteToFlashOwlSave(SramContext* sramCtx) {
     SysFlashrom_WriteDataAsync(sramCtx->saveBuf, sramCtx->curPage, sramCtx->numPages);
 
+    sramCtx->writeResult = SysFlashrom_AwaitResult();
     sramCtx->startWriteOsTime = osGetTime();
     sramCtx->status = 7;
 }
 
 void Sram_UpdateWriteToFlashOwlSave(SramContext* sramCtx) {
+    if (sramCtx->writeResult != 0) {
+        sramCtx->status = 0;
+        return;
+    }
     if (sramCtx->status == 7) {
         if (SysFlashrom_IsBusy() != 0) {          // Is task running
-            if (SysFlashrom_AwaitResult() == 0) { // Wait for task done
+            if (sramCtx->writeResult == 0) {
                 SysFlashrom_WriteDataAsync(sramCtx->saveBuf, sramCtx->curPage + 0x80, sramCtx->numPages);
-                sramCtx->status = 8;
+                sramCtx->writeResult = SysFlashrom_AwaitResult();
+                sramCtx->status = sramCtx->writeResult == 0 ? 8 : 0;
             } else {
-                SysFlashrom_WriteDataAsync(sramCtx->saveBuf, sramCtx->curPage + 0x80, sramCtx->numPages);
-                sramCtx->status = 8;
+                sramCtx->status = 0;
             }
         }
     } else if (sramCtx->status == 8) {
         if (SysFlashrom_IsBusy() != 0) {          // Is task running
-            if (SysFlashrom_AwaitResult() == 0) { // Wait for task done
-                sramCtx->status = 4;
-            } else {
-                sramCtx->status = 4;
-            }
+            sramCtx->status = 4;
         }
     } else if (GameInteractor_Should(VB_SAVE_DELAY,
                                      OSTIME_TO_TIMER(osGetTime() - sramCtx->startWriteOsTime) >= SECONDS_TO_TIMER(2))) {
@@ -2167,8 +2170,10 @@ void Sram_UpdateWriteToFlashOwlSave(SramContext* sramCtx) {
         gSaveContext.save.isOwlSave = false;
         gSaveContext.save.saveInfo.checksum = 0;
         // flash read to buffer then copy to save context
-        SysFlashrom_ReadData(sramCtx->saveBuf, sramCtx->curPage, sramCtx->numPages);
-        memcpy(&gSaveContext, sramCtx->saveBuf, offsetof(SaveContext, fileNum));
+        sramCtx->writeResult = SysFlashrom_ReadData(sramCtx->saveBuf, sramCtx->curPage, sramCtx->numPages);
+        if (sramCtx->writeResult == 0) {
+            memcpy(&gSaveContext, sramCtx->saveBuf, offsetof(SaveContext, fileNum));
+        }
     }
 }
 

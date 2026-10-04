@@ -3628,7 +3628,8 @@ void KaleidoScope_Update(PlayState* play) {
 
                 case PAUSE_SAVEPROMPT_STATE_4:
                     if (sramCtx->status == 0) {
-                        pauseCtx->savePromptState = PAUSE_SAVEPROMPT_STATE_5;
+                        pauseCtx->savePromptState =
+                            sramCtx->writeResult == 0 ? PAUSE_SAVEPROMPT_STATE_5 : PAUSE_SAVEPROMPT_STATE_1;
                     }
                     break;
 

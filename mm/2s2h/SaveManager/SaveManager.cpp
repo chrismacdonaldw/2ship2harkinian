@@ -501,14 +501,15 @@ bool SaveManager_MigrateGlobalOptions(const std::filesystem::path& fileName, Sav
     return isValid;
 }
 
-extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u32 pageCount) {
+static s32 WriteFlashData(u8* saveBuffer, u32 pageNum, u32 pageCount) {
     FlashSave flashSave = SaveManager_GetFlashSaveFromPages(pageNum, pageCount);
     std::string fileName = SaveManager_GetFileNameFromFlashSave(flashSave);
 
     bool isBackup = false;
+    s32 backupResult = 0;
 
     if (flashSave == FLASH_SAVE_UNAVAILABLE) {
-        return;
+        return -1;
     }
 
     if (flashSave == FLASH_SAVE_SRAM_HEADER || flashSave == FLASH_SAVE_SRAM_HEADER_BACKUP) {
@@ -516,7 +517,7 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
         memcpy(&saveOptions, saveBuffer, sizeof(SaveOptions));
 
         SaveManager_WriteGlobalOptions(saveOptions);
-        return;
+        return 0;
     }
 
     // A new cycle save with the "special" page count means that both the regular slot and the backup slot should be
@@ -526,8 +527,8 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
     if ((flashSave == FLASH_SAVE_FILE_1_NEW_CYCLE_SAVE || flashSave == FLASH_SAVE_FILE_2_NEW_CYCLE_SAVE ||
          flashSave == FLASH_SAVE_FILE_3_NEW_CYCLE_SAVE) &&
         pageCount == (u32)gFlashSpecialSaveNumPages[flashSave]) {
-        SaveManager_SysFlashrom_WriteData(saveBuffer, gFlashSaveStartPages[flashSave + 1],
-                                          gFlashSaveNumPages[flashSave + 1]);
+        backupResult =
+            WriteFlashData(saveBuffer, gFlashSaveStartPages[flashSave + 1], gFlashSaveNumPages[flashSave + 1]);
     }
 
     switch (flashSave) {
@@ -547,17 +548,8 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
 
                 // Read the existing save file to preserve the owl save
                 int result = SaveManager_ReadSaveFile(fileName, j);
-                if (result == -2) {
-                    SaveManager_MoveInvalidSaveFile(
-                        fileName,
-                        "Something went wrong trying to preserve the owl save. Original save file has been backed up.");
-                } else if (result == 0) {
-                    result = SaveManager_MigrateSave(j);
-
-                    if (result != 0) {
-                        SaveManager_MoveInvalidSaveFile(
-                            fileName, "Failed to migrate owl save. Original save file has been backed up.");
-                    }
+                if (result == -2 || (result == 0 && SaveManager_MigrateSave(j) != 0)) {
+                    return -1;
                 }
 
                 j["newCycleSave"]["save"] = save;
@@ -568,11 +560,12 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                 if (DiptychGoals::CycleSavePending()) {
                     j.erase("owlSave");
                 }
-                if (SaveManager_WriteSaveFile(fileName, j)) {
-                    sDiptychFlashWrites[flashSave]++;
+#endif
+                if (!SaveManager_WriteSaveFile(fileName, j)) {
+                    return -1;
                 }
-#else
-                SaveManager_WriteSaveFile(fileName, j);
+#ifdef DIPTYCH_GAME_MODULE
+                sDiptychFlashWrites[flashSave]++;
 #endif
             } else {
                 // If IS_VALID_FILE fails, we should delete the save file, even if there is an owl save in it, because
@@ -595,16 +588,8 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
             nlohmann::json j;
             // Read the existing save file to preserve the new cycle save
             int result = SaveManager_ReadSaveFile(fileName, j);
-            if (result == -2) {
-                SaveManager_MoveInvalidSaveFile(fileName, "Something went wrong trying to preserve the new cycle save. "
-                                                          "Original save file has been backed up.");
-            } else if (result == 0) {
-                result = SaveManager_MigrateSave(j);
-
-                if (result != 0) {
-                    SaveManager_MoveInvalidSaveFile(
-                        fileName, "Failed to migrate new cycle save. Original save file has been backed up.");
-                }
+            if (result == -2 || (result == 0 && SaveManager_MigrateSave(j) != 0)) {
+                return -1;
             }
 
             if (IS_VALID_FILE(saveContext.save)) {
@@ -612,12 +597,11 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                 j["version"] = CURRENT_SAVE_VERSION;
                 j["type"] = "2S2H_SAVE";
 
-#ifdef DIPTYCH_GAME_MODULE
-                if (SaveManager_WriteSaveFile(fileName, j)) {
-                    sDiptychFlashWrites[flashSave]++;
+                if (!SaveManager_WriteSaveFile(fileName, j)) {
+                    return -1;
                 }
-#else
-                SaveManager_WriteSaveFile(fileName, j);
+#ifdef DIPTYCH_GAME_MODULE
+                sDiptychFlashWrites[flashSave]++;
 #endif
             } else {
                 // If IS_VALID_FILE fails, and there is still a new cycle save present, we just want to only remove the
@@ -628,7 +612,9 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
                     }
                     j["version"] = CURRENT_SAVE_VERSION;
                     j["type"] = "2S2H_SAVE";
-                    SaveManager_WriteSaveFile(fileName, j);
+                    if (!SaveManager_WriteSaveFile(fileName, j)) {
+                        return -1;
+                    }
                     // If there is no new cycle save, we should just delete the save file
                 } else {
                     SaveManager_DeleteSaveFile(fileName);
@@ -637,8 +623,27 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
             break;
         }
         default:
-            break;
+            return -1;
     }
+    return backupResult;
+}
+
+extern "C" s32 SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u32 pageCount) {
+    s32 result = -1;
+    try {
+        result = WriteFlashData(saveBuffer, pageNum, pageCount);
+    } catch (...) {
+        // The native C caller must receive a failed result even if assembly throws.
+    }
+    if (result != 0) {
+        try {
+            SPDLOG_ERROR("Save write did not complete for page {}", pageNum);
+            Notification::Emit({ .message = "Unable to save. Please try again." });
+        } catch (...) {
+            // Reporting cannot turn an already failed save into an escaping exception.
+        }
+    }
+    return result;
 }
 
 extern "C" s32 SaveManager_SysFlashrom_ReadData(void* saveBuffer, u32 pageNum, u32 pageCount) {
