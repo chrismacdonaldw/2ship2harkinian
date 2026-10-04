@@ -34,7 +34,7 @@ int SaveManager_GetOpenFileSlot();
 bool SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j);
 void SaveManager_PersistSariaHintsAvailable();
 #else
-void SaveManager_SysFlashrom_WriteData(u8* addr, u32 pageNum, u32 pageCount);
+s32 SaveManager_SysFlashrom_WriteData(u8* addr, u32 pageNum, u32 pageCount);
 s32 SaveManager_SysFlashrom_ReadData(void* addr, u32 pageNum, u32 pageCount);
 #endif
 

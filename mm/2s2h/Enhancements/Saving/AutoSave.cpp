@@ -35,6 +35,9 @@ void DrawAutosaveIcon() {
 }
 
 void HandleAutoSave() {
+    if (gPlayState->sramCtx.status != 0) {
+        return;
+    }
     // Check if the interval has passed in minutes.
     autosaveInterval = CVarGetInteger("gEnhancements.Saving.AutosaveInterval", 5) * 60000;
     currentTimestamp = GetUnixTimestamp();
@@ -55,9 +58,8 @@ void HandleAutoSave() {
     // If owl save available to create, do it and reset the interval.
     if (SavingEnhancements_CanSave() && gPlayState->pauseCtx.state == 0) {
 
-        // Reset timestamp, set icon timer to show autosave icon for 5 seconds (100 frames)
+        // Back off after each attempt; show the icon only after successful completion.
         lastSaveTimestamp = GetUnixTimestamp();
-        iconTimer = 100;
 
         // Persist this in case the user is 0th daying
         bool currentOwlSaveState = gSaveContext.save.isOwlSave;
@@ -73,6 +75,7 @@ void HandleAutoSave() {
                                   gFlashOwlSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
                                   gFlashOwlSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
         Sram_StartWriteToFlashOwlSave(&gPlayState->sramCtx);
+        iconTimer = gPlayState->sramCtx.writeResult == 0 ? 100 : 0;
         gSaveContext.save.isOwlSave = currentOwlSaveState;
         SavingEnhancements_ClearSaveEntranceInfo();
     }
