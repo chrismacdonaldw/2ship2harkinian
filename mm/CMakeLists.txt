@@ -241,6 +241,8 @@ if (BUILD_CROWD_CONTROL OR BUILD_ANCHOR)
 endif()
 
 if(BUILD_ANCHOR)
+    # The common Windows PCH imports Winsock1 before this TU can include Winsock2.
+    set_source_files_properties(2s2h/Network/Network.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     find_package(c-ares 1.34 CONFIG QUIET)
     if(NOT TARGET c-ares::cares)
         # A cancellable resolver is required; SDL2_net's synchronous DNS cannot run on the game thread.
