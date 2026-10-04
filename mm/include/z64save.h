@@ -1850,6 +1850,7 @@ typedef enum {
 void Sram_ActivateOwl(u8 owlWarpId);
 void Sram_ClearFlagsAtDawnOfTheFirstDay(void);
 void Sram_SaveEndOfCycle(struct PlayState* play);
+u32 Sram_GetPersistentCycleSwitchMask(s16 sceneId, u8 bank);
 void Sram_IncrementDay(void);
 u16 Sram_CalcChecksum(void* data, size_t count);
 void Sram_InitNewSave(void);
