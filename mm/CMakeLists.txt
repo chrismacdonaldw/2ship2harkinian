@@ -235,9 +235,20 @@ endif()
 find_package(SDL2)
 set(SDL2-INCLUDE ${SDL2_INCLUDE_DIRS})
 
-if (BUILD_CROWD_CONTROL)
-    find_package(SDL2_net)
+if (BUILD_CROWD_CONTROL OR BUILD_ANCHOR)
+    find_package(SDL2_net REQUIRED)
     set(SDL2-NET-INCLUDE ${SDL_NET_INCLUDE_DIRS})
+endif()
+
+if(BUILD_ANCHOR)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_ANCHOR)
+    if(TARGET SDL2_net::SDL2_net-static)
+        target_link_libraries(${PROJECT_NAME} PRIVATE SDL2_net::SDL2_net-static)
+    elseif(TARGET SDL2_net::SDL2_net)
+        target_link_libraries(${PROJECT_NAME} PRIVATE SDL2_net::SDL2_net)
+    else()
+        message(FATAL_ERROR "SDL2_net did not provide a supported CMake target")
+    endif()
 endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE assets

@@ -91,6 +91,15 @@ set(CMAKE_PROJECT_GIT_COMMIT_TAG "${GIT_COMMIT_TAG}" CACHE STRING "Git commit ta
 
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT 2ship)
 
+if(CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS")
+    option(BUILD_ANCHOR "Build the native Anchor client" OFF)
+    if(BUILD_ANCHOR)
+        message(FATAL_ERROR "Anchor networking is supported on desktop targets only")
+    endif()
+else()
+    option(BUILD_ANCHOR "Build the native Anchor client" ON)
+endif()
+
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
