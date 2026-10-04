@@ -26,10 +26,8 @@ void ShadeRGBA16Revert(const char* path, uint32_t begin, uint32_t end);
 uint8_t* ShadeKafeiHairTlut();
 void ShadeKafeiHairTlutRevert();
 
-#ifdef DIPTYCH_GAME_MODULE
 // Copies recover/recolor only caller-owned bytes; native resources and caches are never changed.
 bool CosmeticShading_CopyTunicRange(const char* path, uint8_t* bytes, uint32_t size, uint32_t begin, uint32_t end,
-                                  Color_RGBA8 base, bool gradient);
-#endif
+                                    Color_RGBA8 base, bool gradient);
 
 #endif // COSMETIC_SHADING_H

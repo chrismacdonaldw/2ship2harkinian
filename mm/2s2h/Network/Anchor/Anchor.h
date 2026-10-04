@@ -84,7 +84,9 @@ class Anchor : public Network {
     Json Envelope(const char* type) const;
     Json ClientState() const;
     void Handshake();
-    void ResetProtocol();
+    void PumpConnection();
+    void BindPeers();
+    void ResetProtocol(bool keepConnection = false);
     void RequestState();
     void SendBaseline(uint32_t token);
     void Receive(const Json& packet);

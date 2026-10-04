@@ -1,6 +1,7 @@
 #include "Anchor.h"
 #ifdef ENABLE_ANCHOR
 #include <imgui.h>
+#include "2s2h/BenGui/UIWidgets.hpp"
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
@@ -27,8 +28,9 @@ void AnchorMenu() {
         port = CVarGetInteger("gRemote.Anchor.Port", 43383);
         initialized = true;
     }
-    ImGui::TextWrapped("Requires an Anchor server supporting MM permanent progress. Items, rewards and cycle-local "
-                       "state are not shared.");
+    ImGui::TextWrapped(
+        "Share player avatars and permanent progress with an Anchor server. Items, rewards and cycle-local "
+        "state are not shared.");
     ImGui::BeginDisabled(anchor->isEnabled);
     ImGui::InputText("Host", host, sizeof(host));
     ImGui::InputInt("Port", &port);
@@ -36,6 +38,7 @@ void AnchorMenu() {
     ImGui::InputText("Team", team, sizeof(team));
     ImGui::InputText("Name", name, sizeof(name));
     ImGui::EndDisabled();
+    UIWidgets::CVarColorPicker("Color", "gRemote.Anchor.Color", { 100, 255, 100, 255 });
     if (anchor->isEnabled) {
         if (ImGui::Button("Disconnect")) {
             anchor->Disconnect();

@@ -1,6 +1,7 @@
 #include "Anchor.h"
 #ifdef ENABLE_ANCHOR
 #include "Profile.h"
+#include "Peers.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <chrono>
@@ -130,6 +131,7 @@ void Anchor::Init() {
         return;
     }
     Instance = new Anchor();
+    Instance->BindPeers();
     AnchorProgress::Register([](const AnchorProgress::Edit& edit) {
         if (Instance != nullptr) {
             try {
@@ -177,6 +179,7 @@ void Anchor::Init() {
             Instance->refreshOwner = true;
         }
     });
+    AnchorPeers::Init();
 }
 
 void Anchor::Shutdown() {
@@ -185,6 +188,7 @@ void Anchor::Shutdown() {
     }
     // Final teardown cannot retain callbacks or a worker attached to the context DeinitOTR destroys.
     // Ordinary module Suspend does not call this; its held edits remain available for orderly retry.
+    AnchorPeers::Shutdown();
     AnchorProgress::Register(nullptr);
     OwlAccess::Register(nullptr);
     if (Instance != nullptr) {
@@ -274,6 +278,7 @@ bool Anchor::Connect() {
     return false; // The embedding owner already owns the connection and ordered admission.
 #else
     ResetProtocol();
+    AnchorPeers::Resume();
     const std::string nextRoom = CVarGetString("gRemote.Anchor.RoomId", "");
     const std::string nextTeam = CVarGetString("gRemote.Anchor.TeamId", "default");
     if (room != nextRoom || team != nextTeam) {
@@ -296,14 +301,20 @@ bool Anchor::Connect() {
 }
 
 void Anchor::Disconnect() {
+    AnchorPeers::Suspend();
     Network::Disable();
     ResetProtocol();
 }
 
-void Anchor::ResetProtocol() {
-    clientId = ownerClientId = sequence = 0;
+void Anchor::ResetProtocol(bool keepConnection) {
+    // Save/seed changes reset metadata authority, while the attached socket keeps its server identity.
+    if (!keepConnection) {
+        clientId = ownerClientId = 0;
+        sharing = false;
+    }
+    sequence = 0;
     capability = 0;
-    sharing = authoritative = owlAuthoritative = false;
+    authoritative = owlAuthoritative = false;
     epoch.clear();
     nonce.clear();
     stage = {};
@@ -329,11 +340,20 @@ Anchor::Json Anchor::Envelope(const char* type) const {
 }
 
 Anchor::Json Anchor::ClientState() const {
-    return { { "name", CVarGetString("gRemote.Anchor.Name", "") },
+    const bool loaded = gPlayState != nullptr && gPlayState->state.running &&
+                        gSaveContext.gameMode == GAMEMODE_NORMAL && gSaveContext.fileNum != 0xFF &&
+                        GET_PLAYER(gPlayState) != nullptr;
+    const auto color = CVarGetColor24("gRemote.Anchor.Color", { 100, 255, 100 });
+    return { { "color", { { "r", color.r }, { "g", color.g }, { "b", color.b } } },
+             { "sceneId", loaded ? gPlayState->sceneId : SCENE_MAX },
+             { "sceneNum", 1000 + (loaded ? gPlayState->sceneId : SCENE_MAX) },
+             { "curRoomNum", loaded ? gPlayState->roomCtx.curRoom.num : -1 },
+             { "entranceIndex", 1000 },
+             { "name", CVarGetString("gRemote.Anchor.Name", "") },
              { "clientVersion", "2S2H-permanent-progress-1" },
              { "teamId", team },
              { "online", true },
-             { "isSaveLoaded", scope.admitted && scope.mmActive },
+             { "isSaveLoaded", loaded },
              { "diptych", { { "proto", 1 }, { "seed", scope.seed }, { "game", "mm" } } } };
 }
 
@@ -347,6 +367,58 @@ void Anchor::Handshake() {
                { "pvpMode", 0 },
                { "showLocationsMode", 0 },
                { "teleportMode", 0 } } } });
+}
+
+void Anchor::PumpConnection() {
+    const uint64_t connectedGeneration = connectionGeneration.load();
+    if (!isConnected) {
+        if (clientId != 0) {
+            ResetProtocol();
+        }
+        return;
+    }
+    if (generation != connectedGeneration) {
+        generation = connectedGeneration;
+        ResetProtocol();
+        Handshake();
+    }
+    std::queue<Json> packets;
+    SwapIncomingPacketQueue(packets);
+    while (!packets.empty()) {
+        Receive(packets.front());
+        packets.pop();
+    }
+}
+
+void Anchor::BindPeers() {
+#ifndef DIPTYCH_GAME_MODULE
+    AnchorPeers::SetTransport(
+        [](AnchorPeers::Session* session) {
+            auto* anchor = Instance;
+            if (anchor == nullptr)
+                return false;
+            session->generation = anchor->connectionGeneration.load();
+            session->ownerGeneration = anchor->nativeLoadGeneration;
+            session->clientId = uint32_t(anchor->clientId);
+            session->connected = anchor->isConnected.load();
+            session->active = true;
+            if (anchor->room.size() >= sizeof(session->room) || anchor->team.size() >= sizeof(session->team))
+                return false;
+            std::memcpy(session->room, anchor->room.c_str(), anchor->room.size() + 1);
+            std::memcpy(session->team, anchor->team.c_str(), anchor->team.size() + 1);
+            const auto color = CVarGetColor24("gRemote.Anchor.Color", { 100, 255, 100 });
+            session->color = { color.r, color.g, color.b, 255 };
+            return true;
+        },
+        [](const char* wire) {
+            auto packet = Json::parse(wire, nullptr, false);
+            return Instance != nullptr && !packet.is_discarded() && Instance->Send(std::move(packet));
+        },
+        [](const char*) {
+            return Instance != nullptr && Instance->clientId != 0 &&
+                   Instance->Send({ { "type", "UPDATE_CLIENT_STATE" }, { "state", Instance->ClientState() } });
+        });
+#endif
 }
 
 void Anchor::RequestState() {
@@ -489,8 +561,10 @@ void Anchor::Receive(const Json& packet) {
                 clientId = client["clientId"].get<uint64_t>();
             }
         }
+        AnchorPeers::Receive(packet.dump().c_str());
         return;
     }
+    AnchorPeers::Receive(packet.dump().c_str());
     if (type == "UPDATE_ROOM_STATE" && packet.contains("state") && packet["state"].is_object() &&
         packet["state"].contains("ownerClientId") && Number(packet["state"]["ownerClientId"], UINT32_MAX)) {
         const bool wasOn = sharing;
@@ -611,7 +685,7 @@ void Anchor::LocalEdit(const AnchorProgress::Edit& edit) {
         return;
     }
     if (std::strcmp(current.seed, scope.seed) != 0 || current.ownerGeneration != scope.ownerGeneration) {
-        ResetProtocol();
+        ResetProtocol(true);
         scope = current;
         retained = {};
         retainedOwls = {};
@@ -721,12 +795,17 @@ void Anchor::Pump() {
     }
     Scope next;
     if (!GetScope(next)) {
+        const bool wasLoaded = scope.mmActive;
+        scope.admitted = scope.mmActive = false;
+        if (wasLoaded && clientId != 0)
+            Send({ { "type", "UPDATE_CLIENT_STATE" }, { "state", ClientState() } });
+        PumpConnection();
         return;
     }
     const bool changed = next.ownerGeneration != scope.ownerGeneration || std::strcmp(next.seed, scope.seed) != 0;
     const bool ownerChanged = next.mmActive != scope.mmActive || refreshOwner;
     if (changed) {
-        ResetProtocol();
+        ResetProtocol(true);
         retained = {};
         retainedOwls = {};
         pendingOwls = 0;
@@ -753,24 +832,9 @@ void Anchor::Pump() {
             RequestState();
         }
     }
-    const uint64_t connectedGeneration = connectionGeneration.load();
-    if (!isConnected) {
-        if (clientId != 0) {
-            ResetProtocol();
-        }
+    PumpConnection();
+    if (!isConnected)
         return;
-    }
-    if (generation != connectedGeneration) {
-        generation = connectedGeneration;
-        ResetProtocol();
-        Handshake();
-    }
-    std::queue<Json> packets;
-    SwapIncomingPacketQueue(packets);
-    while (!packets.empty()) {
-        Receive(packets.front());
-        packets.pop();
-    }
     const double now = Now();
     if (clientId != 0 && epoch.empty() && now - lastHello >= 5) {
         std::ostringstream token;
@@ -879,7 +943,7 @@ void Anchor::LocalOwls(uint16_t mask) {
         return;
     }
     if (std::strcmp(current.seed, scope.seed) != 0 || current.ownerGeneration != scope.ownerGeneration) {
-        ResetProtocol();
+        ResetProtocol(true);
         scope = current;
         retained = {};
         retainedOwls = {};

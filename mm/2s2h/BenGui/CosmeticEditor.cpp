@@ -3,7 +3,6 @@
 #include "CosmeticEditor.h"
 #include "CosmeticShading.h"
 #include "2s2h/ShipInit.hpp"
-#ifdef DIPTYCH_GAME_MODULE
 #include "HumanTunic.h"
 #include "FormTunic.h"
 #include <new>
@@ -13,7 +12,6 @@
 #include <fast/resource/type/DisplayList.h>
 #include <ship/Context.h>
 #include <ship/resource/ResourceManager.h>
-#endif
 
 #include <cstring>
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -1169,7 +1167,6 @@ static RegisterShipInitFunc humanTunicColor(
     },
     { kHumanTunicOption.colorCvar });
 
-#ifdef DIPTYCH_GAME_MODULE
 extern Gfx humanHair[];
 namespace {
 static_assert(std::size(humanTunicMaterials) == COSMETIC_HUMAN_TUNIC_MATERIALS);
@@ -1305,7 +1302,6 @@ extern "C" Gfx* CosmeticEditor_HumanTunicDList(const CosmeticHumanTunicMaterials
     const int index = HumanTunicMaterialIndex(*materials, original);
     return index >= 0 && materials->copies[index] != nullptr ? materials->copies[index] : original;
 }
-#endif
 
 // Player.HumanHair
 
@@ -1680,8 +1676,6 @@ static RegisterShipInitFunc fierceDeityTunicColor(
     },
     { kFierceDeityTunicOption.colorCvar });
 
-
-#ifdef DIPTYCH_GAME_MODULE
 namespace {
 struct FormTexture { const char* path; Fast::TextureType type; u16 width; u16 height; u32 size; bool cloth; };
 
@@ -2028,8 +2022,6 @@ extern "C" void CosmeticEditor_TunicPostDraw(const CosmeticHumanTunicMaterials* 
                                             const CosmeticFormTunicMaterials* form, Gfx* begin, Gfx* end) {
     TunicPostDraw(human, form, begin, end, false);
 }
-
-#endif
 
 // HUD.Hearts
 

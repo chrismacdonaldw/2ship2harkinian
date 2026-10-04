@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef DIPTYCH_GAME_MODULE
 #include "ultra64.h"
 #include "color.h"
 
@@ -21,5 +20,4 @@ Gfx* CosmeticEditor_HumanTunicDList(const CosmeticHumanTunicMaterials* materials
 
 #ifdef __cplusplus
 }
-#endif
 #endif
