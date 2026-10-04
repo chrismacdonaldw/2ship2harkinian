@@ -431,10 +431,17 @@ u16 D_801F6AF0;
 u8 D_801F6AF2;
 
 void Sram_ActivateOwl(u8 owlWarpId) {
+    if (owlWarpId >= 10) {
+        return;
+    }
+    u8 previouslyActive = !!(gSaveContext.save.saveInfo.playerData.owlActivationFlags & (1 << owlWarpId));
     SET_OWL_STATUE_ACTIVATED(owlWarpId);
 
     if (gSaveContext.save.saveInfo.playerData.owlWarpId == OWL_WARP_NONE) {
         gSaveContext.save.saveInfo.playerData.owlWarpId = owlWarpId;
+    }
+    if (!previouslyActive) {
+        GameInteractor_ExecuteOnFlagSet(FLAG_OWL_ACTIVATION, owlWarpId);
     }
 }
 

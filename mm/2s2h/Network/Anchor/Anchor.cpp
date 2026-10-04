@@ -98,6 +98,29 @@ bool SwitchRows(const Json& packet, AnchorProgress::State& state, bool baseline)
     }
     return true;
 }
+bool OwlRows(const Json& packet, OwlAccess::State& state, bool baseline, unsigned capability) {
+    if (capability < 4) {
+        return !packet.contains("mmOwlKnown") && !packet.contains("mmOwls");
+    }
+    if (baseline) {
+        if (!packet.contains("mmOwlKnown") || !packet["mmOwlKnown"].is_boolean() || !packet.contains("mmOwls") ||
+            !Number(packet["mmOwls"], OwlAccess::MASK)) {
+            return false;
+        }
+        state = { packet["mmOwlKnown"].get<bool>(), packet["mmOwls"].get<uint16_t>() };
+        return state.known || state.mask == 0;
+    }
+    if (packet.contains("mmOwlKnown")) {
+        return false;
+    }
+    if (packet.contains("mmOwls")) {
+        if (!state.known || !Number(packet["mmOwls"], OwlAccess::MASK) || packet["mmOwls"] == 0) {
+            return false;
+        }
+        state.mask |= packet["mmOwls"].get<uint16_t>();
+    }
+    return true;
+}
 } // namespace
 
 Anchor* Anchor::Instance = nullptr;
@@ -114,6 +137,16 @@ void Anchor::Init() {
             } catch (const std::exception& error) {
                 Instance->localQueueFailed = true;
                 SPDLOG_ERROR("Anchor local progress retention failed: {}", error.what());
+            }
+        }
+    });
+    OwlAccess::Register([](uint16_t mask) {
+        if (Instance != nullptr) {
+            try {
+                Instance->LocalOwls(mask);
+            } catch (const std::exception& error) {
+                Instance->localQueueFailed = true;
+                SPDLOG_ERROR("Anchor local owl access retention failed: {}", error.what());
             }
         }
     });
@@ -153,9 +186,11 @@ void Anchor::Shutdown() {
     // Final teardown cannot retain callbacks or a worker attached to the context DeinitOTR destroys.
     // Ordinary module Suspend does not call this; its held edits remain available for orderly retry.
     AnchorProgress::Register(nullptr);
+    OwlAccess::Register(nullptr);
     if (Instance != nullptr) {
         Instance->Disconnect();
         Instance->SetSessionCallbacks(nullptr, nullptr, nullptr);
+        Instance->SetOwlCallbacks(nullptr, nullptr);
         delete Instance;
         Instance = nullptr;
     }
@@ -170,9 +205,23 @@ void Anchor::SetSessionCallbacks(ScopeProvider provider, ReadRetained read, Comm
     commitRetained = commit;
     scope = {};
     retained = {};
+    retainedOwls = {};
+    pendingOwls = 0;
+    pendingOwlApply = false;
     localQueueFailed = false;
     localEdits.clear();
     ResetProtocol();
+}
+
+void Anchor::SetOwlCallbacks(ReadOwls read, CommitOwls commit) {
+    if (readOwls == read && commitOwls == commit) {
+        return;
+    }
+    readOwls = read;
+    commitOwls = commit;
+    retainedOwls = {};
+    pendingOwls = 0;
+    pendingOwlApply = false;
 }
 
 void Anchor::RememberNativeOwner(const Scope& checked) {
@@ -231,6 +280,9 @@ bool Anchor::Connect() {
         localEdits.clear();
         localQueueFailed = false;
         retained = {};
+        retainedOwls = {};
+        pendingOwls = 0;
+        pendingOwlApply = false;
         pendingApply = false;
     }
     room = nextRoom;
@@ -251,14 +303,14 @@ void Anchor::Disconnect() {
 void Anchor::ResetProtocol() {
     clientId = ownerClientId = sequence = 0;
     capability = 0;
-    sharing = authoritative = false;
+    sharing = authoritative = owlAuthoritative = false;
     epoch.clear();
     nonce.clear();
     stage = {};
     request = 0;
     awaitingLocalEcho = 0;
     incomingEdits.clear();
-    lastHello = lastRequest = -10;
+    lastHello = lastRequest = lastOwlSend = -10;
 }
 
 bool Anchor::Send(Json packet) {
@@ -298,10 +350,10 @@ void Anchor::Handshake() {
 }
 
 void Anchor::RequestState() {
-    if (!isConnected || clientId == 0 || capability != 3 || !sharing || !scope.admitted || epoch.empty()) {
+    if (!isConnected || clientId == 0 || capability < 3 || !sharing || !scope.admitted || epoch.empty()) {
         return;
     }
-    authoritative = false;
+    authoritative = owlAuthoritative = false;
     awaitingLocalEcho = 0;
     stage = {};
     incomingEdits.clear();
@@ -313,7 +365,7 @@ void Anchor::RequestState() {
     packet["request"] = request;
     if (scope.mmActive) {
         packet["game"] = 1;
-        packet["mmSwitchOnly"] = true;
+        packet[capability >= 4 ? "mmProgressOnly" : "mmSwitchOnly"] = true;
     }
     lastRequest = Now();
     if (!Send(std::move(packet))) {
@@ -335,6 +387,11 @@ void Anchor::SendBaseline(uint32_t token) {
             bank = edit.set ? bank | bit : bank & ~bit;
         }
     }
+    OwlAccess::State owls;
+    if (capability >= 4 && !OwlAccess::Capture(owls)) {
+        return;
+    }
+    owls.mask |= retainedOwls.mask | pendingOwls;
     std::vector<Json> rows;
     for (int16_t scene = 0; scene < SCENE_MAX; ++scene) {
         if ((captured.switches[scene][0] | captured.switches[scene][1]) != 0) {
@@ -355,6 +412,10 @@ void Anchor::SendBaseline(uint32_t token) {
                         { "ootSwitches", Json::array() },
                         { "mmSwitchKnown", true },
                         { "mmSwitches", Json::array() } });
+        if (capability >= 4) {
+            packet["mmOwlKnown"] = owls.known;
+            packet["mmOwls"] = owls.mask;
+        }
         for (size_t i = page * PAGE_ENTRIES; i < std::min(rows.size(), (page + 1) * PAGE_ENTRIES); ++i) {
             packet["mmSwitches"].push_back(rows[i]);
         }
@@ -377,6 +438,7 @@ bool Anchor::FinishState() {
     if (stage.pages.empty()) {
         return false;
     }
+    OwlAccess::State owls = stage.owls;
     AnchorProgress::State candidate;
     candidate.known = stage.known;
     std::array<bool, SCENE_MAX> seen{};
@@ -393,7 +455,12 @@ bool Anchor::FinishState() {
             seen[scene] = true;
         }
     }
+    if (!CommitOwlState(owls)) {
+        return false;
+    }
+    owlAuthoritative = owls.known;
     if (!candidate.known) {
+        sequence = stage.sequence;
         request = 0;
         stage = {};
         authoritative = false;
@@ -430,7 +497,7 @@ void Anchor::Receive(const Json& packet) {
         ownerClientId = packet["state"]["ownerClientId"].get<uint64_t>();
         sharing = room != "soh-global" && SharingValue(packet["state"]);
         if (sharing != wasOn) {
-            authoritative = false;
+            authoritative = owlAuthoritative = false;
             stage = {};
             incomingEdits.clear();
             request = 0;
@@ -448,23 +515,24 @@ void Anchor::Receive(const Json& packet) {
     }
     if (type == "DIPTYCH_METADATA_HELLO") {
         if (packet.contains("nonce") && packet["nonce"] == nonce && packet.contains("epoch") &&
-            Token(packet["epoch"], 32) && packet.contains("cap") && Number(packet["cap"], 3)) {
+            Token(packet["epoch"], 32) && packet.contains("cap") && Number(packet["cap"], 4)) {
             capability = packet["cap"].get<unsigned>();
             epoch = packet["epoch"].get<std::string>();
-            if (capability == 3) {
+            if (capability >= 3) {
                 RequestState();
             }
         }
         return;
     }
-    if (capability != 3 || !sharing || !scope.admitted || !packet.contains("epoch") || packet["epoch"] != epoch ||
+    if (capability < 3 || !sharing || !scope.admitted || !packet.contains("epoch") || packet["epoch"] != epoch ||
         !packet.contains("diptych") || packet["diptych"] != Envelope(type.c_str())["diptych"]) {
         return;
     }
     if (type == "DIPTYCH_METADATA_REQUEST") {
-        if (scope.mmActive && packet.value("baseline", false) && packet.value("mmSwitchOnly", false) &&
-            packet.contains("game") && packet["game"] == 1 && packet.contains("request") &&
-            Number(packet["request"], UINT32_MAX) && packet["request"].get<uint32_t>() != 0) {
+        if (scope.mmActive && packet.value("baseline", false) &&
+            packet.value(capability >= 4 ? "mmProgressOnly" : "mmSwitchOnly", false) && packet.contains("game") &&
+            packet["game"] == 1 && packet.contains("request") && Number(packet["request"], UINT32_MAX) &&
+            packet["request"].get<uint32_t>() != 0) {
             SendBaseline(packet["request"].get<uint32_t>());
         }
         return;
@@ -474,19 +542,22 @@ void Anchor::Receive(const Json& packet) {
     }
     if (type == "DIPTYCH_METADATA_STATE") {
         AnchorProgress::State checked;
+        OwlAccess::State checkedOwls;
         if (request == 0 || !packet.contains("request") || packet["request"] != request || packet["seq"] == 0 ||
             !packet.contains("of") || !Number(packet["of"], MAX_PAGES) || packet["of"] == 0 ||
             !packet.contains("page") || !Number(packet["page"], MAX_PAGES - 1) || packet["page"] >= packet["of"] ||
-            !SwitchRows(packet, checked, true)) {
+            !SwitchRows(packet, checked, true) || !OwlRows(packet, checkedOwls, true, capability)) {
             return;
         }
         if (stage.pages.empty()) {
             stage.sequence = packet["seq"].get<uint64_t>();
             stage.known = packet["mmSwitchKnown"].get<bool>();
+            stage.owls = checkedOwls;
             stage.pages.resize(packet["of"].get<size_t>());
         }
         if (stage.sequence != packet["seq"] || stage.known != packet["mmSwitchKnown"] ||
-            stage.pages.size() != packet["of"].get<size_t>()) {
+            stage.pages.size() != packet["of"].get<size_t>() || stage.owls.known != checkedOwls.known ||
+            stage.owls.mask != checkedOwls.mask) {
             RequestState();
             return;
         }
@@ -543,6 +614,9 @@ void Anchor::LocalEdit(const AnchorProgress::Edit& edit) {
         ResetProtocol();
         scope = current;
         retained = {};
+        retainedOwls = {};
+        pendingOwls = 0;
+        pendingOwlApply = false;
         pendingApply = false;
         localEdits.clear();
         localQueueFailed = false;
@@ -555,7 +629,7 @@ void Anchor::LocalEdit(const AnchorProgress::Edit& edit) {
     const uint32_t bit = uint32_t(1) << (edit.flag % 32);
     bank = edit.set ? bank | bit : bank & ~bit;
     // OFF/disconnected changes remain native-local and can seed a genuinely fresh namespace.
-    if (!isConnected || !sharing || capability != 3) {
+    if (!isConnected || !sharing || capability < 3) {
         return;
     }
 #endif
@@ -604,6 +678,9 @@ void Anchor::Pump() {
     if (next.ownerGeneration != scope.ownerGeneration || std::strcmp(next.seed, scope.seed) != 0) {
         scope = next;
         retained = {};
+        retainedOwls = {};
+        pendingOwls = 0;
+        pendingOwlApply = false;
         pendingApply = false;
         localEdits.clear();
         localQueueFailed = false;
@@ -611,6 +688,7 @@ void Anchor::Pump() {
     scope = next;
     if (localQueueFailed)
         return; // Do not overwrite native progress after a retention failure.
+    PumpOwls();
     AnchorProgress::State admitted;
     if (!readRetained(&scope, &admitted)) {
         return; // Host baseline/I/O barrier: do not overwrite held local events or touch native state.
@@ -650,6 +728,9 @@ void Anchor::Pump() {
     if (changed) {
         ResetProtocol();
         retained = {};
+        retainedOwls = {};
+        pendingOwls = 0;
+        pendingOwlApply = false;
         pendingApply = false;
         localEdits.clear();
         localQueueFailed = false;
@@ -662,7 +743,7 @@ void Anchor::Pump() {
     if (localQueueFailed)
         return;
     if (changed || ownerChanged) {
-        authoritative = false;
+        authoritative = owlAuthoritative = false;
         stage = {};
         incomingEdits.clear();
         request = 0;
@@ -696,15 +777,19 @@ void Anchor::Pump() {
         token << std::hex << generation << '-' << ++requestSerial;
         nonce = token.str();
         lastHello = now;
-        Send({ { "type", "DIPTYCH_METADATA_HELLO" }, { "targetClientId", 0 }, { "nonce", nonce }, { "cap", 3 } });
+        Send({ { "type", "DIPTYCH_METADATA_HELLO" }, { "targetClientId", 0 }, { "nonce", nonce }, { "cap", 4 } });
     }
-    if (!sharing || capability != 3) {
+    if (!sharing || capability < 3) {
+        if (pendingOwlApply && scope.mmActive &&
+            OwlAccess::Apply(retainedOwls) == AnchorProgress::ApplyResult::Applied) {
+            pendingOwlApply = false;
+        }
         if (pendingApply && scope.mmActive && AnchorProgress::Apply(retained) == AnchorProgress::ApplyResult::Applied) {
             pendingApply = false;
         }
         return;
     }
-    if (!authoritative && request == 0 && now - lastRequest >= 1) {
+    if ((!authoritative || (capability >= 4 && !owlAuthoritative)) && request == 0 && now - lastRequest >= 1) {
         RequestState();
     } else if (request != 0 && now - lastRequest >= 10) {
         RequestState();
@@ -722,11 +807,12 @@ void Anchor::Pump() {
             break;
         }
         AnchorProgress::State candidate = retained;
-        if (!SwitchRows(packet, candidate, false)) {
+        OwlAccess::State candidateOwls = retainedOwls;
+        if (!SwitchRows(packet, candidate, false) || !OwlRows(packet, candidateOwls, false, capability)) {
             RequestState();
             break;
         }
-        if (!Commit(candidate)) {
+        if (!Commit(candidate) || !CommitOwlState(candidateOwls)) {
             break;
         }
         if (awaitingLocalEcho != 0 && packet.contains("sourceClientId") &&
@@ -749,6 +835,11 @@ void Anchor::Pump() {
         RequestState(); // Recover through the existing snapshot barrier, then replay unacknowledged local rows.
     }
     FlushLocal();
+    FlushOwls();
+    if (pendingOwlApply && scope.mmActive && capability >= 4 && request == 0 && owlAuthoritative &&
+        OwlAccess::Apply(retainedOwls) == AnchorProgress::ApplyResult::Applied) {
+        pendingOwlApply = false;
+    }
     if (pendingApply && scope.mmActive && localEdits.empty() && authoritative && request == 0) {
         if (AnchorProgress::Apply(retained) == AnchorProgress::ApplyResult::Applied) {
             pendingApply = false;
@@ -757,12 +848,100 @@ void Anchor::Pump() {
 #endif
 }
 
+bool Anchor::CommitOwlState(const OwlAccess::State& state) {
+    if (!state.known) {
+        return true; // UNKNOWN never removes an earned local access fact.
+    }
+    if (commitOwls != nullptr && !commitOwls(&scope, &state)) {
+        return false;
+    }
+    retainedOwls.known = true;
+    retainedOwls.mask |= state.mask;
+    pendingOwlApply = true;
+    // Only genuine admitted state, never transport queue acceptance, retires offered facts.
+    pendingOwls &= ~state.mask;
+    return true;
+}
+
+void Anchor::LocalOwls(uint16_t mask) {
+    Scope current;
+    if (!GetScope(current)) {
+#ifdef DIPTYCH_GAME_MODULE
+        if (!SameNativeOwner()) {
+            return;
+        }
+        current = scope;
+#else
+        return;
+#endif
+    }
+    if (!current.mmActive) {
+        return;
+    }
+    if (std::strcmp(current.seed, scope.seed) != 0 || current.ownerGeneration != scope.ownerGeneration) {
+        ResetProtocol();
+        scope = current;
+        retained = {};
+        retainedOwls = {};
+        pendingApply = pendingOwlApply = false;
+        pendingOwls = 0;
+        localEdits.clear();
+        localQueueFailed = false;
+    }
+    pendingOwls |= mask & OwlAccess::MASK;
+}
+
+void Anchor::PumpOwls() {
+    if (readOwls == nullptr || commitOwls == nullptr || !scope.mmActive) {
+        return;
+    }
+    OwlAccess::State admitted;
+    if (!readOwls(&scope, &admitted)) {
+        return;
+    }
+    OwlAccess::State captured;
+    if (!OwlAccess::Capture(captured)) {
+        return;
+    }
+    const uint16_t offered = pendingOwls | captured.mask;
+    OwlAccess::State candidate{ true, uint16_t(admitted.mask | offered) };
+    if ((!admitted.known || (offered & ~admitted.mask) != 0) && !commitOwls(&scope, &candidate)) {
+        pendingOwls |= offered;
+        return;
+    }
+    pendingOwls = 0;
+    retainedOwls = candidate;
+    pendingOwlApply = OwlAccess::Apply(retainedOwls) != AnchorProgress::ApplyResult::Applied;
+}
+
+void Anchor::FlushOwls() {
+    if (capability < 4 || !owlAuthoritative || request != 0 || !scope.mmActive) {
+        return;
+    }
+    OwlAccess::State captured;
+    if (OwlAccess::Capture(captured)) {
+        pendingOwls |= captured.mask & ~retainedOwls.mask;
+    }
+    if (pendingOwls == 0 || Now() - lastOwlSend < 1) {
+        return;
+    }
+    auto packet = Envelope("DIPTYCH_METADATA_EDIT");
+    packet.update({ { "checks", Json::array() },
+                    { "entrances", Json::array() },
+                    { "ootSwitches", Json::array() },
+                    { "mmSwitches", Json::array() },
+                    { "mmOwls", pendingOwls } });
+    if (Send(std::move(packet))) {
+        lastOwlSend = Now();
+    }
+}
+
 bool Anchor::FlushSessionEdits() {
     if (localQueueFailed) {
         return false;
     }
 #ifdef DIPTYCH_GAME_MODULE
-    if (!localEdits.empty()) {
+    if (!localEdits.empty() || pendingOwls != 0) {
         try {
             Pump();
         } catch (const std::exception& error) {
@@ -770,7 +949,7 @@ bool Anchor::FlushSessionEdits() {
             return false;
         }
     }
-    return localEdits.empty();
+    return localEdits.empty() && pendingOwls == 0;
 #else
     return true; // Standalone disk persistence remains owned by normal native saving.
 #endif
@@ -791,7 +970,7 @@ bool Anchor::SetSharing(bool on) {
         return false;
     }
     sharing = on; // Native room updates exclude the sender; successful queueing is its own control path.
-    authoritative = false;
+    authoritative = owlAuthoritative = false;
     stage = {};
     incomingEdits.clear();
     awaitingLocalEcho = 0;
@@ -818,11 +997,14 @@ const char* Anchor::Status() const {
         return "Connecting";
     if (!scope.admitted)
         return "Waiting for an admitted save";
-    if (capability != 3)
+    if (capability < 3)
         return "Server does not support MM permanent progress";
     if (!sharing)
         return "Room progress sharing is off";
-    return authoritative ? "Sharing permanent world switches" : "Synchronizing permanent world switches";
+    if (capability < 4) {
+        return authoritative ? "Sharing switches; server does not support owl access" : "Synchronizing world switches";
+    }
+    return authoritative && owlAuthoritative ? "Sharing switches and owl access" : "Synchronizing permanent progress";
 #endif
 }
 #endif

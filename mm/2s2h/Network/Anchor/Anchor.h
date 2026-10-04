@@ -4,6 +4,7 @@
 
 #include "2s2h/Network/Network.h"
 #include "PermanentProgress.h"
+#include "OwlAccess.h"
 #include <array>
 #include <deque>
 
@@ -18,6 +19,8 @@ class Anchor : public Network {
     using ScopeProvider = bool (*)(Scope*);
     using ReadRetained = bool (*)(const Scope*, AnchorProgress::State*);
     using CommitRetained = bool (*)(const Scope*, const AnchorProgress::State*);
+    using ReadOwls = bool (*)(const Scope*, OwlAccess::State*);
+    using CommitOwls = bool (*)(const Scope*, const OwlAccess::State*);
 
     static Anchor* Instance;
     static void Init();
@@ -26,6 +29,8 @@ class Anchor : public Network {
     // read returns false through its baseline/I/O barrier; commit persists local state or fails for retry.
     // All calls are on the game thread; nullptr bindings mean unsupported. No STL crosses this seam.
     void SetSessionCallbacks(ScopeProvider provider, ReadRetained read, CommitRetained commit);
+    // Separate existing owl-journal authority; true commit means every offered bit is durably owned.
+    void SetOwlCallbacks(ReadOwls read, CommitOwls commit);
     bool Connect();
     void Disconnect();
     void Pump();
@@ -43,6 +48,12 @@ class Anchor : public Network {
     ScopeProvider scopeProvider = nullptr;
     ReadRetained readRetained = nullptr;
     CommitRetained commitRetained = nullptr;
+    ReadOwls readOwls = nullptr;
+    CommitOwls commitOwls = nullptr;
+    OwlAccess::State retainedOwls;
+    uint16_t pendingOwls = 0;
+    bool owlAuthoritative = false, pendingOwlApply = false;
+    double lastOwlSend = -10;
     Scope scope;
     std::string room, team, epoch, nonce, nativeSeed;
     uint64_t generation = 0, clientId = 0, ownerClientId = 0, sequence = 0;
@@ -60,6 +71,7 @@ class Anchor : public Network {
     struct Stage {
         uint64_t sequence = 0;
         bool known = false;
+        OwlAccess::State owls;
         size_t bytes = 0;
         std::vector<Json> pages;
     } stage;
@@ -80,6 +92,10 @@ class Anchor : public Network {
     bool Commit(const AnchorProgress::State& state);
     void FlushLocal();
     void LocalEdit(const AnchorProgress::Edit& edit);
+    void LocalOwls(uint16_t mask);
+    void PumpOwls();
+    void FlushOwls();
+    bool CommitOwlState(const OwlAccess::State& state);
 };
 
 void AnchorMenu();
