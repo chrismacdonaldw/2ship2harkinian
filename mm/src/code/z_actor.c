@@ -825,7 +825,7 @@ void Flags_SetSwitch(PlayState* play, s32 flag) {
  */
 void Flags_UnsetSwitch(PlayState* play, s32 flag) {
     if ((flag > SWITCH_FLAG_NONE) && (flag < 0x80)) {
-        u8 previouslyOn = Flags_GetSwitch(play, flag);
+        u8 previouslyOn = !!Flags_GetSwitch(play, flag);
         play->actorCtx.sceneFlags.switches[(flag & ~0x1F) >> 5] &= ~(1 << (flag & 0x1F));
         if (previouslyOn) {
             GameInteractor_ExecuteOnSceneFlagUnset(play->sceneId, FLAG_CYCL_SCENE_SWITCH, flag);
