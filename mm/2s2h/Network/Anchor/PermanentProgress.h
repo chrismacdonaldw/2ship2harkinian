@@ -3,7 +3,7 @@
 
 #include <cstdint>
 extern "C" {
-#include "z64scene.h"
+#include "z64.h"
 }
 
 namespace AnchorProgress {
@@ -25,6 +25,8 @@ using EditCallback = void (*)(const Edit&);
 // All entrypoints and callback binding belong to the game thread.
 int16_t CanonicalScene(int16_t scene);
 uint32_t EligibleMask(int16_t scene, uint8_t bank);
+// Local events retain ownership through save/transition delays; capture/apply have stricter guards.
+bool LocalReady();
 bool Ready();
 bool Capture(State& state);
 ApplyResult Apply(const State& state);

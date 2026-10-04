@@ -14,8 +14,12 @@ bool hooksRegistered = false;
 uint32_t remoteDepth = 0;
 
 struct RemoteScope {
-    RemoteScope() { ++remoteDepth; }
-    ~RemoteScope() { --remoteDepth; }
+    RemoteScope() {
+        ++remoteDepth;
+    }
+    ~RemoteScope() {
+        --remoteDepth;
+    }
 };
 
 void BuildMasks(State& masks) {
@@ -40,8 +44,8 @@ void BuildMasks(State& masks) {
 
 bool LoadedOwner() {
     return gPlayState != nullptr && gSaveContext.gameMode == GAMEMODE_NORMAL && gSaveContext.fileNum != 0xFF &&
-           gPlayState->state.running && GET_PLAYER(gPlayState) != nullptr &&
-           CanonicalScene(gPlayState->sceneId) >= 0 && !Rando::StaticData::Checks.empty();
+           gPlayState->state.running && GET_PLAYER(gPlayState) != nullptr && CanonicalScene(gPlayState->sceneId) >= 0 &&
+           !Rando::StaticData::Checks.empty();
 }
 
 bool CanCapture() {
@@ -56,7 +60,7 @@ void Emit(int16_t scene, FlagType type, uint32_t flag, bool set) {
     scene = CanonicalScene(scene);
     if (scene == CanonicalScene(gPlayState->sceneId) &&
         (EligibleMask(scene, flag / 32) & (uint32_t(1) << (flag % 32))) != 0) {
-        editCallback(Edit{scene, uint8_t(flag), set});
+        editCallback(Edit{ scene, uint8_t(flag), set });
     }
 }
 
@@ -97,7 +101,13 @@ uint32_t EligibleMask(int16_t scene, uint8_t bank) {
     return masks.switches[scene][bank];
 }
 
-bool Ready() { return CanCapture() && gPlayState->sramCtx.status == 0; }
+bool LocalReady() {
+    return LoadedOwner();
+}
+
+bool Ready() {
+    return CanCapture() && gPlayState->sramCtx.status == 0;
+}
 
 bool Capture(State& state) {
     if (!CanCapture()) {
@@ -112,7 +122,7 @@ bool Capture(State& state) {
         for (uint8_t bank = 0; bank < 2; ++bank) {
             // ActorContext is newer than saved banks after a local SET or UNSET.
             uint32_t value = scene == current ? gPlayState->actorCtx.sceneFlags.switches[bank]
-                                             : (bank == 0 ? cycle.switch0 : cycle.switch1);
+                                              : (bank == 0 ? cycle.switch0 : cycle.switch1);
             captured.switches[scene][bank] = value & masks.switches[scene][bank];
         }
     }
@@ -164,7 +174,9 @@ ApplyResult Apply(const Edit& edit) {
     return ApplyResult::Applied;
 }
 
-bool IsApplyingRemote() { return remoteDepth != 0; }
+bool IsApplyingRemote() {
+    return remoteDepth != 0;
+}
 
 void Register(EditCallback callback) {
     editCallback = callback;

@@ -67,6 +67,9 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/BenGui/Notification.h"
 #include "2s2h/ShipUtils.h"
 #include "2s2h/ShipInit.hpp"
+#ifdef ENABLE_ANCHOR
+#include "2s2h/Network/Anchor/Anchor.h"
+#endif
 #include "2s2h/PresetManager/PresetManager.h"
 #include "2s2h/config/ConfigUpdaters.h"
 
@@ -1068,6 +1071,9 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
     Rando::Init();
+#ifdef ENABLE_ANCHOR
+    Anchor::Init();
+#endif
     GfxPatcher_ApplyNecessaryAuthenticPatches();
     DebugConsole_Init();
     GameInteractor::Instance->RegisterOwnHooks();
@@ -1113,6 +1119,9 @@ extern "C" void SaveManager_ThreadPoolWait() {
 
 extern "C" void DeinitOTR() {
     SaveManager_ThreadPoolWait();
+#ifdef ENABLE_ANCHOR
+    Anchor::Shutdown();
+#endif
     OTRAudio_Exit();
 #ifdef ENABLE_CROWD_CONTROL
     CrowdControl::Instance->Disable();
