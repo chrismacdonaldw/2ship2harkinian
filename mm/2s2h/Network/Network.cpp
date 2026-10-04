@@ -10,7 +10,9 @@
 #include <unistd.h>
 #endif
 #include "Network.h"
+#include <ares.h>
 #include <algorithm>
+#include <array>
 
 namespace {
 #ifdef _WIN32
@@ -92,6 +94,130 @@ Socket Connect(const IPaddress& address, const std::atomic<bool>& enabled) {
     Close(socket);
     return INVALID;
 }
+
+struct Resolution {
+    struct Descriptor {
+        ares_socket_t socket = ARES_SOCKET_BAD;
+        int read = 0, write = 0;
+    };
+    std::array<Descriptor, 16> sockets{};
+    bool done = false, success = false, failed = false;
+    uint32_t host = 0;
+};
+
+void ResolverSocket(void* data, ares_socket_t socket, int read, int write) {
+    auto& result = *static_cast<Resolution*>(data);
+    for (auto& descriptor : result.sockets) {
+        if (descriptor.socket == socket) {
+            descriptor = read || write ? Resolution::Descriptor{ socket, read, write } : Resolution::Descriptor{};
+            return;
+        }
+    }
+    if (!read && !write)
+        return;
+    for (auto& descriptor : result.sockets) {
+        if (descriptor.socket == ARES_SOCKET_BAD) {
+            descriptor = { socket, read, write };
+            return;
+        }
+    }
+    result.failed = true; // Refuse unsupported descriptor pressure rather than omit a live socket.
+}
+
+void Resolved(void* data, int status, int, ares_addrinfo* addresses) {
+    auto& result = *static_cast<Resolution*>(data);
+    if (status == ARES_SUCCESS && addresses != nullptr) {
+        for (auto* node = addresses->nodes; node != nullptr; node = node->ai_next) {
+            if (node->ai_family == AF_INET && node->ai_addrlen >= sizeof(sockaddr_in)) {
+                result.host = reinterpret_cast<const sockaddr_in*>(node->ai_addr)->sin_addr.s_addr;
+                result.success = true;
+                break;
+            }
+        }
+    }
+    if (addresses != nullptr)
+        ares_freeaddrinfo(addresses);
+    result.done = true;
+}
+
+bool Resolve(const std::string& hostname, IPaddress& address, const std::atomic<bool>& enabled,
+             const char* servers = nullptr) {
+    Resolution result;
+    ares_options options{};
+    options.timeout = 1000;
+    options.tries = 2;
+    options.sock_state_cb = ResolverSocket;
+    options.sock_state_cb_data = &result;
+    ares_channel channel = nullptr;
+    if (ares_init_options(&channel, &options, ARES_OPT_TIMEOUTMS | ARES_OPT_TRIES | ARES_OPT_SOCK_STATE_CB) !=
+        ARES_SUCCESS)
+        return false;
+    // The retained local regression supplies a nonresponding resolver; normal connections use system configuration.
+    if (servers != nullptr && ares_set_servers_ports_csv(channel, servers) != ARES_SUCCESS) {
+        ares_destroy(channel);
+        return false;
+    }
+    ares_addrinfo_hints hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = ARES_AI_NOSORT; // No hidden blocking probe-connect during address sorting.
+    ares_getaddrinfo(channel, hostname.c_str(), nullptr, &hints, Resolved, &result);
+    const auto deadline = SDL_GetTicks64() + 3000;
+    while (enabled && !result.done && !result.failed && SDL_GetTicks64() < deadline) {
+        fd_set reads, writes;
+        FD_ZERO(&reads);
+        FD_ZERO(&writes);
+        int count = 0;
+        Socket maximum = 0;
+        const auto descriptors = result.sockets;
+        for (const auto& descriptor : descriptors) {
+            if (descriptor.socket == ARES_SOCKET_BAD)
+                continue;
+#ifndef _WIN32
+            if (descriptor.socket >= FD_SETSIZE) {
+                result.failed = true;
+                break;
+            }
+#endif
+            if (descriptor.read)
+                FD_SET(descriptor.socket, &reads);
+            if (descriptor.write)
+                FD_SET(descriptor.socket, &writes);
+            maximum = std::max(maximum, static_cast<Socket>(descriptor.socket));
+            ++count;
+        }
+        if (result.failed)
+            break;
+        timeval timeout{ 0, 25000 };
+        const int ready =
+            count == 0 ? (SDL_Delay(25), 0) : select(static_cast<int>(maximum + 1), &reads, &writes, nullptr, &timeout);
+        if (ready < 0 && !Pending())
+            break;
+        std::array<ares_fd_events_t, 16> events{};
+        size_t size = 0;
+        if (ready > 0)
+            for (const auto& descriptor : descriptors) {
+                if (descriptor.socket == ARES_SOCKET_BAD)
+                    continue;
+                unsigned flags = 0;
+                if (FD_ISSET(descriptor.socket, &reads))
+                    flags |= ARES_FD_EVENT_READ;
+                if (FD_ISSET(descriptor.socket, &writes))
+                    flags |= ARES_FD_EVENT_WRITE;
+                if (flags)
+                    events[size++] = { descriptor.socket, flags };
+            }
+        if (ares_process_fds(channel, events.data(), size, 0) != ARES_SUCCESS)
+            break;
+    }
+    if (!result.done)
+        ares_cancel(channel);
+    ares_destroy(channel); // Callback context and resolver sockets are gone before the worker exits.
+    if (!enabled || result.failed || !result.success)
+        return false;
+    address.host = result.host;
+    return true;
+}
 } // namespace
 
 Network::~Network() {
@@ -107,7 +233,7 @@ bool Network::Enable(const char* host, uint16_t port) {
         return false;
     }
     initialized = true;
-    if (SDLNet_ResolveHost(&networkAddress, host, port) < 0) {
+    if (ares_library_init(ARES_LIB_INIT_ALL) != ARES_SUCCESS) {
         SDLNet_Quit();
         initialized = false;
         return false;
@@ -115,9 +241,12 @@ bool Network::Enable(const char* host, uint16_t port) {
     ClearQueues();
     isEnabled = true;
     try {
+        hostname = host;
+        networkAddress.port = SDL_SwapBE16(port);
         receiveThread = std::thread(&Network::ReceiveFromServer, this);
     } catch (...) {
         isEnabled = false;
+        ares_library_cleanup();
         SDLNet_Quit();
         initialized = false;
         return false;
@@ -132,6 +261,7 @@ void Network::Disable() {
     }
     ClearQueues();
     if (initialized) {
+        ares_library_cleanup();
         SDLNet_Quit();
         initialized = false;
     }
@@ -233,7 +363,9 @@ bool Network::ProcessOutgoingPackets() {
 void Network::ReceiveFromServer() {
     uint32_t retryDelay = 1000;
     while (isEnabled) {
-        networkSocket = static_cast<intptr_t>(Connect(networkAddress, isEnabled));
+        networkSocket = Resolve(hostname, networkAddress, isEnabled)
+                            ? static_cast<intptr_t>(Connect(networkAddress, isEnabled))
+                            : -1;
         if (static_cast<Socket>(networkSocket) == INVALID) {
             uint32_t remaining = retryDelay;
             retryDelay = std::min(retryDelay * 2, 30000u);

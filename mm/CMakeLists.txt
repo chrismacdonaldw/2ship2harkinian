@@ -241,7 +241,21 @@ if (BUILD_CROWD_CONTROL OR BUILD_ANCHOR)
 endif()
 
 if(BUILD_ANCHOR)
+    find_package(c-ares 1.34 CONFIG QUIET)
+    if(NOT TARGET c-ares::cares)
+        # A cancellable resolver is required; SDL2_net's synchronous DNS cannot run on the game thread.
+        set(CARES_STATIC ON CACHE BOOL "" FORCE)
+        set(CARES_SHARED OFF CACHE BOOL "" FORCE)
+        set(CARES_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+        set(CARES_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(cares
+            GIT_REPOSITORY https://github.com/c-ares/c-ares.git
+            GIT_TAG c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab # 1.34.8
+        )
+        FetchContent_MakeAvailable(cares)
+    endif()
     target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_ANCHOR)
+    target_link_libraries(${PROJECT_NAME} PRIVATE c-ares::cares)
     if(WIN32)
         target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
     endif()

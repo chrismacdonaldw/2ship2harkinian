@@ -14,7 +14,6 @@
 class Network {
   public:
     virtual ~Network();
-    // Called on the game thread; hostname lookup uses the system resolver synchronously.
     bool Enable(const char* host, uint16_t port);
     void Disable();
     bool QueueOutgoingPacket(nlohmann::json packet);
@@ -29,6 +28,7 @@ class Network {
     static constexpr size_t MAX_QUEUE_BYTES = 4 * MAX_PACKET_BYTES;
     static constexpr size_t MAX_QUEUE_PACKETS = 256;
     IPaddress networkAddress{};
+    std::string hostname;
     intptr_t networkSocket = -1;
     std::thread receiveThread;
     bool initialized = false; // Enable/Disable are called only by the game thread.
