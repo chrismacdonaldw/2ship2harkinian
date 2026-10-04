@@ -33,6 +33,15 @@ ApplyResult Apply(const State& state) { if (!applyReady) return ApplyResult::Not
 void (*registeredEdit)(const Edit&) = nullptr;
 void Register(void (*callback)(const Edit&)) { registeredEdit = callback; }
 }
+namespace OwlAccess {
+constexpr uint16_t MASK = 0x3FF;
+struct State { bool known = false; uint16_t mask = 0; };
+State native; bool captureReady = true; int applied = 0;
+bool Capture(State& state) { if (!captureReady || !AnchorProgress::loadedReady) return false; state = native; state.known = true; return true; }
+AnchorProgress::ApplyResult Apply(const State& state) { if (!AnchorProgress::applyReady) return AnchorProgress::ApplyResult::NotReady; if (!state.known) return AnchorProgress::ApplyResult::Unknown; native.known = true; native.mask |= state.mask; ++applied; return AnchorProgress::ApplyResult::Applied; }
+void (*registeredEarned)(uint16_t) = nullptr;
+void Register(void (*callback)(uint16_t)) { registeredEarned = callback; }
+}
 class Network {
 public:
  std::atomic<bool> isEnabled{false}, isConnected{false}; std::atomic<uint64_t> connectionGeneration{1};
@@ -64,6 +73,10 @@ bool hostReady = true, writeOk = true, scopeAvailable = true; int commits = 0;
 bool ScopeProvider(Anchor::Scope* scope) { *scope = hostScope; return scopeAvailable; }
 bool Read(const Anchor::Scope*, AnchorProgress::State* state) { if (!hostReady) return false; *state = hostState; return true; }
 bool Commit(const Anchor::Scope*, const AnchorProgress::State* state) { if (!writeOk) return false; hostState = *state; ++commits; return true; }
+OwlAccess::State hostOwls;
+bool owlReadReady = true, owlWriteOk = true;
+bool ReadOwls(const Anchor::Scope*, OwlAccess::State* state) { if (!owlReadReady) return false; *state = hostOwls; return true; }
+bool CommitOwls(const Anchor::Scope*, const OwlAccess::State* state) { if (!owlWriteOk) return false; hostOwls.known = true; hostOwls.mask |= state->mask; return true; }
 int main() {
  using namespace AnchorProgress;
  ShipSaveInfo profile;
@@ -128,6 +141,22 @@ int main() {
  hostScope.ownerGeneration++; hostScope.seed[0] = 'n'; hostState = {};
  captureReady = false; anchor.Pump(); assert(applied == 2);
  anchor.SetSessionCallbacks(nullptr, nullptr, nullptr); anchor.Pump(); assert(applied == 2);
+ anchor.SetSessionCallbacks(ScopeProvider, Read, Commit); anchor.SetOwlCallbacks(ReadOwls, CommitOwls);
+ hostState.known = true; hostReady = false; captureReady = true;
+ OwlAccess::native = {true, 1}; owlReadReady = false;
+ anchor.Pump(); anchor.LocalOwls(1); assert(anchor.pendingOwls == 1);
+ anchor.SetOwlCallbacks(ReadOwls, CommitOwls); assert(anchor.pendingOwls == 1);
+ scopeAvailable = false; anchor.LocalOwls(2); assert(anchor.pendingOwls == 3);
+ ++gSaveContext.fileNum; anchor.LocalOwls(4); assert(anchor.pendingOwls == 3); --gSaveContext.fileNum;
+ scopeAvailable = true; owlReadReady = true; owlWriteOk = false;
+ assert(!anchor.FlushSessionEdits() && anchor.pendingOwls == 3 && hostOwls.mask == 0);
+ hostScope.mmActive = false; loadedReady = false; anchor.Pump(); assert(anchor.pendingOwls == 3);
+ hostScope.mmActive = true; loadedReady = true; owlWriteOk = true; applyReady = false;
+ assert(anchor.FlushSessionEdits() && hostOwls.mask == 3 && anchor.pendingOwls == 0);
+ assert(OwlAccess::applied == 0); // Switch read remains held; owl journal admission is independent.
+ hostOwls.mask |= 8; applyReady = true; anchor.Pump(); assert(OwlAccess::native.mask == 11 && anchor.sent.empty());
+ ++hostScope.ownerGeneration; hostScope.seed[0] = 'z'; owlReadReady = false;
+ anchor.Pump(); assert(anchor.pendingOwls == 0 && !anchor.retainedOwls.known);
 #else
  native.known = true;
  assert(anchor.Connect()); anchor.Pump();
@@ -172,6 +201,39 @@ int main() {
  anchor.Disconnect(); assert(!anchor.isEnabled && anchor.localEdits.size() == 1 && anchor.awaitingLocalEcho == 0);
  assert(anchor.Connect()); anchor.Pump(); assert(anchor.localEdits.size() == 1);
  anchor.scope.ownerGeneration = 999; anchor.Pump(); assert(anchor.localEdits.empty()); // Unrelated native owner fences old rows.
+ anchor.Disconnect();
+ // A cap4 reconnect keeps cap3 switch behavior and adds independent monotone owl authority.
+ assert(anchor.Connect()); anchor.Pump();
+ anchor.Receive({{"type", "ALL_CLIENT_STATE"}, {"state", nlohmann::json::array({{{"self", true}, {"clientId", 9}}})}});
+ anchor.Receive({{"type", "UPDATE_ROOM_STATE"}, {"state", {{"ownerClientId", 9}, {"syncItemsAndFlags", 1}}}});
+ anchor.Pump();
+ anchor.Receive({{"type", "DIPTYCH_METADATA_HELLO"}, {"clientId", 0}, {"nonce", anchor.nonce}, {"epoch", "epoch2"}, {"cap", 4}});
+ assert(anchor.sent.back()["mmProgressOnly"] == true && !anchor.sent.back().contains("mmSwitchOnly"));
+ page = anchor.Envelope("DIPTYCH_METADATA_STATE"); page["clientId"] = 0; page.erase("targetClientId");
+ page.update({{"request", anchor.request}, {"seq", 1}, {"page", 0}, {"of", 2}, {"known", nlohmann::json::array({false,false})},
+              {"checks", nlohmann::json::array()}, {"entrances", nlohmann::json::array()}, {"ootSwitches", nlohmann::json::array()},
+              {"mmSwitchKnown", true}, {"mmSwitches", nlohmann::json::array()}, {"mmOwlKnown", true}, {"mmOwls", 2}});
+ anchor.Receive(page); assert(OwlAccess::native.mask == 0 && !anchor.retainedOwls.known);
+ wrong = page; wrong["page"] = 1; wrong["mmOwls"] = 4;
+ anchor.Receive(wrong); assert(anchor.stage.pages.empty() && anchor.request != 0 && OwlAccess::native.mask == 0 && !anchor.retainedOwls.known); // Page scalar disagreement resyncs.
+ page["request"] = anchor.request; page["of"] = 1;
+ anchor.Receive(page); anchor.Pump(); assert(anchor.owlAuthoritative && anchor.sequence == 1);
+ OwlAccess::native.mask |= 1; anchor.LocalOwls(1); anchor.Pump();
+ assert(anchor.pendingOwls == 1 && anchor.sent.back()["mmOwls"] == 1); // Queue acceptance does not admit.
+ edit = anchor.Envelope("DIPTYCH_METADATA_EDIT"); edit["clientId"] = 0; edit.erase("targetClientId");
+ edit.update({{"seq", 2}, {"checks", nlohmann::json::array()}, {"entrances", nlohmann::json::array()},
+              {"ootSwitches", nlohmann::json::array()}, {"mmSwitches", nlohmann::json::array()}, {"mmOwls", 3}});
+ anchor.Receive(edit); anchor.Pump(); assert(anchor.pendingOwls == 0 && anchor.retainedOwls.mask == 3 && OwlAccess::native.mask == 3);
+ anchor.LocalOwls(4); anchor.Disconnect(); assert(anchor.pendingOwls == 4);
+ assert(anchor.Connect()); anchor.Pump(); assert(anchor.pendingOwls == 4);
+ anchor.scope.ownerGeneration = 999; anchor.Pump(); assert(anchor.pendingOwls == 0);
+ // Known zero and UNKNOWN never remove earned access. Invalid scalars do not advance sequence.
+ OwlAccess::State checked; assert(!OwlRows({{"mmOwlKnown",false},{"mmOwls",1}},checked,true,4));
+ assert(OwlRows({{"mmOwlKnown",false},{"mmOwls",0}},checked,true,4) && !checked.known);
+ assert(!OwlRows({{"mmOwls",1024}},checked,false,4));
+ assert(!OwlRows({{"mmOwls",0}},checked,false,4));
+ assert(!OwlRows({{"mmOwlKnown",true},{"mmOwls",1}},checked,false,4));
+ assert(!OwlRows({{"mmOwls",1}},checked,false,3));
  anchor.Disconnect();
 #endif
  std::cout << "Native scope and Anchor boundary regression passed" << std::endl;
