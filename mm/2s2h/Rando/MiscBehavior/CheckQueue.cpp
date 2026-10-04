@@ -7,6 +7,7 @@
 #include "2s2h/Rando/StaticData/StaticData.h"
 #include "2s2h/ShipUtils.h"
 #include "Traps.h"
+#include "2s2h/Rando/CheckDelivery.h"
 
 extern "C" {
 #include "variables.h"
@@ -18,15 +19,23 @@ extern s16 D_801CFF94[250];
 #ifdef DIPTYCH_GAME_MODULE
 void Diptych_RememberForeignActor(Actor* actor, RandoCheckId randoCheckId);
 RandoCheckId Diptych_ForeignActorCheck(Actor* actor);
-// 0: queue it; 1: not claimed yet, try again; 2: the inbox gives it
-int Diptych_ClaimCheck(RandoCheckId rc);
-void Diptych_GiveCheck(RandoCheckId rc, RandoItemId item);
 std::string Diptych_ForeignItemMessage(RandoCheckId rc);
 bool Diptych_ForeignTrap(RandoCheckId check);
 std::string Diptych_ForeignTrapMessage();
 #endif
 
 static bool queued = false;
+static Rando::CheckDelivery::Ticket queuedTicket;
+
+static void CancelQueuedGetItem(Actor* actor, PlayState* play) {
+    Player* player = GET_PLAYER(play);
+    // GI_NONE follows the player's existing get-item completion path without opening the message.
+    if ((CUSTOM_ITEM_FLAGS & CustomItem::GIVE_ITEM_CUTSCENE) && player != nullptr && actor->parent == &player->actor &&
+        player->getItemId == GI_SHIP)
+        player->getItemId = GI_NONE;
+    actor->draw = nullptr;
+    Actor_Kill(actor);
+}
 
 // This function handles queuing up item gives that the player has been marked as eligible for. If you are looking for
 // the behavior of the actual giving itself, the heavy lifting is done by the GameInteractor queue. This function is
@@ -46,18 +55,16 @@ void Rando::MiscBehavior::CheckQueue() {
         auto randoSaveCheck = RANDO_SAVE_CHECKS[randoCheckId];
 
         if (randoSaveCheck.eligible) {
-#ifdef DIPTYCH_GAME_MODULE
-            const int diptychClaim = Diptych_ClaimCheck(randoCheckId);
-            if (diptychClaim == 2) {
-                RANDO_SAVE_CHECKS[randoCheckId].cycleObtained = true;
-                RANDO_SAVE_CHECKS[randoCheckId].obtained = true;
-                RANDO_SAVE_CHECKS[randoCheckId].eligible = false;
-            }
-            if (diptychClaim != 0) {
+            const auto ticket = CheckDelivery::ClaimCheck(randoCheckId);
+            if (ticket.disposition == CheckDelivery::ClaimDisposition::InboxOwned) {
+                if (CheckDelivery::GrantCheck(ticket, randoCheckId).result == CheckDelivery::GrantResult::AlreadyOwned)
+                    CheckDelivery::ApplyCollected(randoCheckId);
                 continue;
             }
-#endif
+            if (ticket.disposition != CheckDelivery::ClaimDisposition::Queue)
+                continue;
             queued = true;
+            queuedTicket = ticket;
 
             GameInteractor::Instance->events.emplace_back(GIEventGiveItem{
                 .showGetItemCutscene =
@@ -65,23 +72,24 @@ void Rando::MiscBehavior::CheckQueue() {
                 .param = (int16_t)randoCheckId,
                 .giveItem =
                     [](Actor* actor, PlayState* play) {
-                        auto& randoSaveCheck = RANDO_SAVE_CHECKS[CUSTOM_ITEM_PARAM];
-                        RandoItemId randoItemId =
-                            Rando::ConvertItem(randoSaveCheck.randoItemId, (RandoCheckId)CUSTOM_ITEM_PARAM);
-                        std::string prefix = "You found";
-                        std::string message =
-                            Rando::StaticData::GetItemName(randoItemId, true, (RandoCheckId)CUSTOM_ITEM_PARAM);
-
-                        if (randoItemId == RI_JUNK) {
-                            randoItemId = Rando::CurrentJunkItem((RandoCheckId)CUSTOM_ITEM_PARAM);
+                        const auto randoCheckId = (RandoCheckId)CUSTOM_ITEM_PARAM;
+                        const auto grant = CheckDelivery::GrantCheck(queuedTicket, randoCheckId);
+                        queued = false;
+                        if (grant.result != CheckDelivery::GrantResult::Applied) {
+                            if (grant.result == CheckDelivery::GrantResult::AlreadyOwned)
+                                CheckDelivery::ApplyCollected(randoCheckId);
+                            CUSTOM_ITEM_PARAM = RI_NONE;
+                            CancelQueuedGetItem(actor, play);
+                            return;
                         }
-                        if (randoItemId == RI_TRIFORCE_PIECE) {
-                            if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces + 1 >=
+                        const RandoItemId randoItemId = grant.item;
+                        std::string prefix = "You found";
+                        std::string message = Rando::StaticData::GetItemName(randoItemId, true, randoCheckId);
+                        if (randoItemId == RI_TRIFORCE_PIECE_PREVIOUS &&
+                            gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces >=
                                 RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
-                                prefix = "You";
-                                message = "completed the Triforce";
-                            }
-                            randoItemId = RI_TRIFORCE_PIECE_PREVIOUS;
+                            prefix = "You";
+                            message = "completed the Triforce";
                         }
 
 #ifdef DIPTYCH_GAME_MODULE
@@ -97,7 +105,7 @@ void Rando::MiscBehavior::CheckQueue() {
 #endif
                         if (randoItemId == RI_TRAP) {
                             prefix = "";
-                            message = GetTrapMessage();
+                            message = grant.trapMessage;
                             // We need to remove the Color Codes if the player is skipping Item Get Cutscenes as the
                             // Notification Emit doesnt support it.
                             if (CVarGetInteger("gEnhancements.Cutscenes.SkipGetItemCutscenes", 0) >= 2) {
@@ -133,15 +141,6 @@ void Rando::MiscBehavior::CheckQueue() {
                                 });
                             }
                         }
-#ifdef DIPTYCH_GAME_MODULE
-                        Diptych_GiveCheck((RandoCheckId)CUSTOM_ITEM_PARAM, randoItemId);
-#else
-                        Rando::GiveItem(randoItemId);
-#endif
-                        randoSaveCheck.cycleObtained = true;
-                        randoSaveCheck.obtained = true;
-                        randoSaveCheck.eligible = false;
-                        queued = false;
 #ifdef DIPTYCH_GAME_MODULE
                         if (randoItemId == RI_DIPTYCH_FOREIGN) {
                             Diptych_RememberForeignActor(actor, (RandoCheckId)CUSTOM_ITEM_PARAM);
@@ -182,6 +181,8 @@ void Rando::MiscBehavior::CheckQueue() {
 
 void Rando::MiscBehavior::CheckQueueReset() {
     queued = false;
+    queuedTicket = {};
+    CheckDelivery::Reset();
     GameInteractor::Instance->currentEvent = GIEventNone{};
     GameInteractor::Instance->events.clear();
 }

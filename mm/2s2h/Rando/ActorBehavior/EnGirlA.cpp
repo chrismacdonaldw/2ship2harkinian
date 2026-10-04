@@ -2,6 +2,8 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/Rando/MiscBehavior/Traps.h"
+#include "2s2h/Rando/CheckDelivery.h"
+#include <map>
 
 extern "C" {
 #include "variables.h"
@@ -58,10 +60,7 @@ void EnGirlA_RandoRestock(PlayState* play, EnGirlA* enGirlA) {
     }
 }
 
-#ifdef DIPTYCH_GAME_MODULE
-int Diptych_ClaimCheck(RandoCheckId rc);
-void Diptych_GiveCheck(RandoCheckId rc, RandoItemId item);
-#endif
+static std::map<RandoCheckId, Rando::CheckDelivery::Ticket> shopTickets;
 
 s32 EnGirlA_RandoCanBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     if (gSaveContext.save.saveInfo.playerData.rupees < play->msgCtx.unk1206C) {
@@ -74,31 +73,36 @@ s32 EnGirlA_RandoCanBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     if (!CanBePurchased(randoSaveCheck, randoCheckId)) {
         return CANBUY_RESULT_CANNOT_GET_NOW;
     }
-#ifdef DIPTYCH_GAME_MODULE
-    if (Diptych_ClaimCheck(randoCheckId) == 1) {
+    const bool delayedOffer = play->sceneId == SCENE_AYASHIISHOP;
+    const auto ticket = Rando::CheckDelivery::ClaimCheck(randoCheckId, delayedOffer);
+    if (ticket.disposition == Rando::CheckDelivery::ClaimDisposition::InboxOwned) {
+        if (Rando::CheckDelivery::GrantCheck(ticket, randoCheckId).result ==
+            Rando::CheckDelivery::GrantResult::AlreadyOwned)
+            Rando::CheckDelivery::ApplyCollected(randoCheckId);
         return CANBUY_RESULT_CANNOT_GET_NOW;
     }
-#endif
-
+    if (ticket.disposition != Rando::CheckDelivery::ClaimDisposition::Queue)
+        return CANBUY_RESULT_CANNOT_GET_NOW;
+    if (!delayedOffer && !Rando::CheckDelivery::PrepareCheck(ticket, randoCheckId)) {
+        Rando::CheckDelivery::CancelCheck(ticket, randoCheckId);
+        return CANBUY_RESULT_CANNOT_GET_NOW;
+    }
+    shopTickets[randoCheckId] = ticket;
     return CANBUY_RESULT_SUCCESS_2;
 }
 
 void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
-    auto& randoSaveCheck = RANDO_SAVE_CHECKS[enGirlA->actor.world.rot.z];
-    RandoCheckId randoCheckId = (RandoCheckId)enGirlA->actor.world.rot.z;
-    RandoItemId randoItemId = Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId);
-    randoSaveCheck.obtained = randoSaveCheck.cycleObtained = true;
-    Rupees_ChangeBy(-play->msgCtx.unk1206C);
-    if (randoItemId == RI_TRAP) {
-        RollTrapType();
-    } else if (randoItemId == RI_JUNK) {
-        randoItemId = Rando::CurrentJunkItem(randoCheckId);
+    const auto check = (RandoCheckId)enGirlA->actor.world.rot.z;
+    const auto pending = shopTickets.find(check);
+    if (pending == shopTickets.end())
+        return;
+    const auto ticket = pending->second;
+    shopTickets.erase(pending);
+    if (play->sceneId == SCENE_AYASHIISHOP) {
+        // This offer arrives after the shop has removed stock; prepare from the current inbox cursor.
+        Rando::CheckDelivery::PrepareCheck(ticket, check);
     }
-#ifdef DIPTYCH_GAME_MODULE
-    Diptych_GiveCheck(randoCheckId, randoItemId);
-#else
-    Rando::GiveItem(randoItemId);
-#endif
+    Rando::CheckDelivery::GrantCheck(ticket, check, play->msgCtx.unk1206C);
 }
 
 void EnGirlA_RandoBuyFanfareFunc(PlayState* play, EnGirlA* enGirlA) {
