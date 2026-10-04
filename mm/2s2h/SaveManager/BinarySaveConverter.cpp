@@ -722,7 +722,11 @@ bool BinarySaveConverter_HandleFileDropped(char* filePath) {
             j["owlSave"] = saveContext;
         }
 
-        SaveManager_WriteSaveFile(fileName, j);
+        if (!SaveManager_WriteSaveFile(fileName, j)) {
+            SPDLOG_ERROR("Failed to import save into slot {}", saveSlot);
+            Notification::Emit({ .message = "Failed to import save into slot", .suffix = std::to_string(saveSlot) });
+            return true;
+        }
 
         // Reset the file select state to reload the save metadata
         if (gFileSelectState != NULL) {
