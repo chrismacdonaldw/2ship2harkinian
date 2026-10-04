@@ -83,11 +83,21 @@ Actor* sWrappedPlayer = nullptr;
 ActorFunc sWrappedDraw = nullptr;
 auto sLastPose = std::chrono::steady_clock::time_point{};
 
-#define POSE_FIELDS(X)                                                                                          \
-    X(currentMask)                                                                                              \
-    X(rightHandType)                                                                                            \
-    X(leftHandType) X(currentShield) X(sheathType) X(heldItemAction) X(heldItemId) X(itemAction) X(stateFlags1) \
-        X(stateFlags2) X(stateFlags3) X(unk_B28) X(unk_ACC) X(invincibilityTimer)
+#define POSE_FIELDS(X) \
+    X(currentMask);    \
+    X(rightHandType);  \
+    X(leftHandType);   \
+    X(currentShield);  \
+    X(sheathType);     \
+    X(heldItemAction); \
+    X(heldItemId);     \
+    X(itemAction);     \
+    X(stateFlags1);    \
+    X(stateFlags2);    \
+    X(stateFlags3);    \
+    X(unk_B28);        \
+    X(unk_ACC);        \
+    X(invincibilityTimer);
 
 template <class T> T Number(const Json& json, const char* key) {
     const auto& value = json.at(key);
@@ -156,7 +166,7 @@ void UpdatePlayer(Actor* actor, PlayState* play) {
     player->maskId = player->currentMask;
     player->currentMask = pose.currentMask;
     player->maskObjectLoadState = 0;
-#define COPY_FIELD(name) player->name = pose.name;
+#define COPY_FIELD(name) player->name = pose.name
     POSE_FIELDS(COPY_FIELD)
 #undef COPY_FIELD
     player->unk_B0C = pose.unk_B0C;
@@ -432,7 +442,7 @@ void ReadPose(uint32_t id, const Json& packet) {
         pose.jointTableBuffer[i] = joints[i].get<u8>();
         pose.jointTableUpperBuffer[i] = upper[i].get<u8>();
     }
-#define READ_FIELD(name) pose.name = Number<decltype(pose.name)>(packet, #name);
+#define READ_FIELD(name) pose.name = Number<decltype(pose.name)>(packet, #name)
     POSE_FIELDS(READ_FIELD)
 #undef READ_FIELD
     pose.unk_B0C = Coordinate(packet, "unk_B0C");
@@ -510,7 +520,7 @@ void SendPose(PlayState* play) {
                     { "upperJointTable", std::vector<int>(std::begin(player->jointTableUpperBuffer),
                                                           std::end(player->jointTableUpperBuffer)) },
                     { "unk_B0C", player->unk_B0C } };
-#define WRITE_FIELD(name) packet[#name] = player->name;
+#define WRITE_FIELD(name) packet[#name] = player->name
     POSE_FIELDS(WRITE_FIELD)
 #undef WRITE_FIELD
     for (const auto& [id, client] : sClients) {
