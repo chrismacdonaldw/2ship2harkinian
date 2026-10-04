@@ -42,6 +42,13 @@ PersistentCycleSceneFlags sPersistentCycleSceneFlags[SCENE_MAX] = {
 #undef DEFINE_SCENE
 #undef DEFINE_SCENE_UNSET
 
+u32 Sram_GetPersistentCycleSwitchMask(s16 sceneId, u8 bank) {
+    if (sceneId < 0 || sceneId >= SCENE_MAX || bank >= 2) {
+        return 0;
+    }
+    return bank == 0 ? sPersistentCycleSceneFlags[sceneId].switch0 : sPersistentCycleSceneFlags[sceneId].switch1;
+}
+
 // Each flag has 2 bits to store persistence over the three-day reset cycle
 // Only 1 of these bits need to be set to persist (Values 1, 2, 3).
 // Therefore, the final game does not distinguish between these two macros in use

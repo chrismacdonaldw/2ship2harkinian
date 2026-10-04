@@ -20,6 +20,9 @@
 #include "ResolutionEditor.h"
 #include "2s2h/Rando/Rando.h"
 #include "build.h"
+#ifdef ENABLE_ANCHOR
+#include "2s2h/Network/Anchor/Anchor.h"
+#endif
 
 #include <fast/Fast3dGui.h>
 #include <fast/Fast3dWindow.h>
@@ -772,6 +775,11 @@ void BenMenu::AddSettings() {
                      .Step(0.1f));
 
     path.column = SECTION_COLUMN_1;
+#ifdef ENABLE_ANCHOR
+    path.sidebarName = "Anchor";
+    AddSidebarEntry("Settings", "Anchor", 1);
+    AddWidget(path, "Anchor Connection", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) { AnchorMenu(); });
+#endif
     path.sidebarName = "Presets";
     AddSidebarEntry("Settings", "Presets", 1);
     AddWidget(path, "Presets", WIDGET_CUSTOM).CustomFunction([](WidgetInfo& info) { PresetManager_Draw(); });
