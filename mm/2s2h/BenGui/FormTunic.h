@@ -1,5 +1,4 @@
 #pragma once
-#ifdef DIPTYCH_GAME_MODULE
 #include "ultra64.h"
 #include "color.h"
 #include "HumanTunic.h"
@@ -25,5 +24,4 @@ void CosmeticEditor_TunicPostDraw(const CosmeticHumanTunicMaterials* human,
                                    const CosmeticFormTunicMaterials* form, Gfx* begin, Gfx* end);
 #ifdef __cplusplus
 }
-#endif
 #endif

@@ -935,7 +935,6 @@ void ShadeKafeiHairTlutRevert() {
     ShadeHdPaletteNewBase(kKafeiBody2TlutPath, 8, 255, whiteBase, MODE_REVERT);
 }
 
-#ifdef DIPTYCH_GAME_MODULE
 bool CosmeticShading_CopyTunicRange(const char* path, uint8_t* bytes, uint32_t size, uint32_t begin, uint32_t end,
                                   Color_RGBA8 base, bool gradient) {
     if (path == nullptr || bytes == nullptr || begin > end || end >= size / 2) return false;
@@ -954,4 +953,3 @@ bool CosmeticShading_CopyTunicRange(const char* path, uint8_t* bytes, uint32_t s
     else ShadePaletteBytes(bytes, begin, end, base, MODE_MAX);
     return true;
 }
-#endif
